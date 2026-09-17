@@ -1,0 +1,9 @@
+<resources>
+    <color name="canvas_bg">#F8FAFC</color>
+    <color name="box_bg">#FFFFFF</color>
+    <color name="box_border">#4F46E5</color>
+    <color name="connector_line">#6366F1</color>
+    <color name="primary">#4F46E5</color>
+    <color name="primary_dark">#3730A3</color>
+    <color name="accent">#F59E0B</color>
+</resources>

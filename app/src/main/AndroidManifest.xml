@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:allowBackup="true"
+        android:icon="@drawable/ic_launcher"
+        android:roundIcon="@drawable/ic_launcher_round"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.NoteApp">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize"
+            android:screenOrientation="portrait" />
+
+        <!-- Theme 1: Modern Clean (Default) -->
+        <activity-alias
+            android:name=".MainActivityClean"
+            android:targetActivity=".MainActivity"
+            android:icon="@drawable/ic_launcher_clean"
+            android:roundIcon="@drawable/ic_launcher_clean_round"
+            android:label="@string/app_name"
+            android:exported="true"
+            android:enabled="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <!-- Theme 2: Milanote Dark -->
+        <activity-alias
+            android:name=".MainActivityDark"
+            android:targetActivity=".MainActivity"
+            android:icon="@drawable/ic_launcher_dark"
+            android:roundIcon="@drawable/ic_launcher_dark_round"
+            android:label="@string/app_name"
+            android:exported="true"
+            android:enabled="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <!-- Theme 3: Warm Parchment -->
+        <activity-alias
+            android:name=".MainActivityParchment"
+            android:targetActivity=".MainActivity"
+            android:icon="@drawable/ic_launcher_parchment"
+            android:roundIcon="@drawable/ic_launcher_parchment_round"
+            android:label="@string/app_name"
+            android:exported="true"
+            android:enabled="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <!-- Theme 4: Cyberpunk Neon -->
+        <activity-alias
+            android:name=".MainActivityCyberpunk"
+            android:targetActivity=".MainActivity"
+            android:icon="@drawable/ic_launcher_cyberpunk"
+            android:roundIcon="@drawable/ic_launcher_cyberpunk_round"
+            android:label="@string/app_name"
+            android:exported="true"
+            android:enabled="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <!-- Theme 5: Solarized Mint -->
+        <activity-alias
+            android:name=".MainActivityMint"
+            android:targetActivity=".MainActivity"
+            android:icon="@drawable/ic_launcher_mint"
+            android:roundIcon="@drawable/ic_launcher_mint_round"
+            android:label="@string/app_name"
+            android:exported="true"
+            android:enabled="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+    </application>
+
+</manifest>

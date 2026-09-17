@@ -1,0 +1,1021 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/rootContainer"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!-- ==================== SCREEN 1: HOMEPAGE ==================== -->
+    <LinearLayout
+        android:id="@+id/homeContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#F8FAFC"
+        android:orientation="vertical"
+        android:visibility="visible">
+
+        <!-- Homepage Header (Ceiling-Attached) -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="0dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="20dp"
+            android:paddingTop="28dp"
+            android:paddingEnd="20dp"
+            android:paddingBottom="8dp">
+
+            <ImageView
+                android:id="@+id/ivHomeAppIcon"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:src="@drawable/ic_boards"
+                app:tint="#4F46E5" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/tvHomeAppTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="NoteApp"
+                    android:textColor="#0F172A"
+                    android:textSize="22sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvHomeAppSubtitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Visual Thinking &amp; Endless Boards"
+                    android:textColor="#64748B"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <!-- Import Board Button -->
+            <ImageButton
+                android:id="@+id/btnHomeImport"
+                android:layout_width="42dp"
+                android:layout_height="42dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Import Board"
+                android:src="@drawable/ic_import"
+                app:tint="#059669" />
+
+            <!-- Settings Button (STRICTLY ON HOMEPAGE ONLY) -->
+            <ImageButton
+                android:id="@+id/btnHomeSettings"
+                android:layout_width="42dp"
+                android:layout_height="42dp"
+                android:layout_marginStart="4dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Settings and Themes"
+                android:src="@drawable/ic_settings"
+                app:tint="#4F46E5" />
+        </LinearLayout>
+
+        <!-- Search Bar -->
+        <LinearLayout
+            android:id="@+id/layoutHomeSearch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="20dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginEnd="20dp"
+            android:layout_marginBottom="12dp"
+            android:background="@drawable/bg_top_bar"
+            android:elevation="2dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="14dp"
+            android:paddingTop="8dp"
+            android:paddingEnd="14dp"
+            android:paddingBottom="8dp">
+
+            <ImageView
+                android:id="@+id/ivHomeSearchIcon"
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:src="@drawable/ic_search"
+                app:tint="#94A3B8" />
+
+            <EditText
+                android:id="@+id/etHomeSearch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:background="@null"
+                android:hint="Search boards..."
+                android:imeOptions="actionSearch"
+                android:singleLine="true"
+                android:textColor="#0F172A"
+                android:textColorHint="#94A3B8"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+        <!-- Boards List & Empty View Container -->
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rvBoards"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clipToPadding="false"
+                android:paddingStart="12dp"
+                android:paddingTop="6dp"
+                android:paddingEnd="12dp"
+                android:paddingBottom="88dp" />
+
+            <!-- Empty State -->
+            <LinearLayout
+                android:id="@+id/layoutEmptyHome"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:padding="32dp"
+                android:visibility="gone">
+
+                <ImageView
+                    android:id="@+id/ivEmptyHomeFolder"
+                    android:layout_width="72dp"
+                    android:layout_height="72dp"
+                    android:src="@drawable/ic_folder"
+                    app:tint="#CBD5E1" />
+
+                <TextView
+                    android:id="@+id/tvEmptyHomeTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:text="No boards found"
+                    android:textColor="#334155"
+                    android:textSize="17sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvEmptyHomeSubtitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:gravity="center"
+                    android:text="Tap (+) below to create a new board or import a .noteapp project."
+                    android:textColor="#64748B"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <!-- Floating Action Button: Add Board (+) on Bottom-Right -->
+            <com.google.android.material.floatingactionbutton.FloatingActionButton
+                android:id="@+id/fabAddBoard"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom|end"
+                android:layout_margin="24dp"
+                android:contentDescription="Create new board"
+                android:src="@drawable/ic_add"
+                app:backgroundTint="#4F46E5"
+                app:elevation="8dp"
+                app:tint="#FFFFFF" />
+
+        </FrameLayout>
+
+    </LinearLayout>
+
+    <!-- ==================== SCREEN 2: INFINITE CANVAS ==================== -->
+    <FrameLayout
+        android:id="@+id/canvasContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone">
+
+        <!-- Infinite Canvas Surface -->
+        <com.noteapp.student.canvas.InfiniteCanvasView
+            android:id="@+id/infiniteCanvas"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@color/canvas_bg" />
+
+        <!-- Top Navigation & Actions Bar (Ceiling-Attached) -->
+        <LinearLayout
+            android:id="@+id/topBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top"
+            android:layout_marginStart="0dp"
+            android:layout_marginTop="0dp"
+            android:layout_marginEnd="0dp"
+            android:background="@drawable/bg_ceiling_bar"
+            android:elevation="8dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="6dp"
+            android:paddingTop="8dp"
+            android:paddingEnd="6dp"
+            android:paddingBottom="2dp">
+
+            <!-- Back to Homepage Button (Boards) -->
+            <ImageButton
+                android:id="@+id/btnCanvasBack"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Back to boards"
+                android:src="@drawable/ic_arrow_back"
+                app:tint="#1E293B" />
+
+            <!-- Sub-board Back Navigation Button -->
+            <ImageButton
+                android:id="@+id/btnNavBack"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Back to parent board"
+                android:src="@drawable/ic_undo"
+                android:visibility="gone"
+                app:tint="#4F46E5" />
+
+            <!-- Board Selector Pill Button -->
+            <LinearLayout
+                android:id="@+id/btnBoardSelector"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="6dp"
+                android:paddingTop="4dp"
+                android:paddingEnd="6dp"
+                android:paddingBottom="4dp">
+
+                <TextView
+                    android:id="@+id/tvCurrentBoardName"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:text="Main Board"
+                    android:textColor="#0F172A"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:text="▾"
+                    android:textColor="#64748B"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <!-- Minimap HUD Button -->
+            <ImageButton
+                android:id="@+id/btnMinimap"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Minimap HUD"
+                android:src="@drawable/ic_minimap"
+                app:tint="#4F46E5" />
+
+            <!-- Undo Button -->
+            <ImageButton
+                android:id="@+id/btnUndo"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Undo"
+                android:src="@drawable/ic_undo"
+                app:tint="#64748B" />
+
+            <!-- Redo Button -->
+            <ImageButton
+                android:id="@+id/btnRedo"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Redo"
+                android:src="@drawable/ic_redo"
+                app:tint="#64748B" />
+
+            <!-- Zoom to Fit Button -->
+            <ImageButton
+                android:id="@+id/btnZoomFit"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Zoom to fit"
+                android:src="@drawable/ic_zoom_fit"
+                app:tint="#1E293B" />
+
+            <!-- Export Button -->
+            <ImageButton
+                android:id="@+id/btnExport"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Export board"
+                android:src="@drawable/ic_export"
+                app:tint="#059669" />
+
+            <!-- Board Options Menu Button -->
+            <ImageButton
+                android:id="@+id/btnMenu"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="More options"
+                android:src="@drawable/ic_more_vert"
+                app:tint="#1E293B" />
+
+            <!-- Top Bar Collapse Button (▲) -->
+            <ImageButton
+                android:id="@+id/btnCollapseTopBar"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Collapse top bar"
+                android:src="@drawable/ic_collapse_up"
+                app:tint="#94A3B8" />
+
+        </LinearLayout>
+
+        <!-- Ceiling-Attached Expand Top Bar Pill (▼) -->
+        <ImageButton
+            android:id="@+id/btnExpandTopBar"
+            android:layout_width="48dp"
+            android:layout_height="32dp"
+            android:layout_gravity="top|center_horizontal"
+            android:layout_marginTop="0dp"
+            android:background="@drawable/bg_ceiling_expand"
+            android:contentDescription="Expand top bar"
+            android:elevation="8dp"
+            android:paddingTop="10dp"
+            android:src="@drawable/ic_expand_down"
+            android:visibility="gone"
+            app:tint="#4F46E5" />
+
+        <!-- Minimap HUD Container (Radar Viewfinder) -->
+        <FrameLayout
+            android:id="@+id/minimapContainer"
+            android:layout_width="210dp"
+            android:layout_height="150dp"
+            android:layout_gravity="top|end"
+            android:layout_marginTop="48dp"
+            android:layout_marginEnd="16dp"
+            android:elevation="14dp"
+            android:visibility="gone">
+
+            <com.noteapp.student.canvas.MinimapView
+                android:id="@+id/minimapView"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
+
+            <TextView
+                android:id="@+id/btnMinimapClose"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|end"
+                android:layout_margin="6dp"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:padding="4dp"
+                android:text="✕"
+                android:textColor="#94A3B8"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+        </FrameLayout>
+
+        <!-- Contextual Multi-Selection Bar -->
+        <LinearLayout
+            android:id="@+id/selectionBar"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|center_horizontal"
+            android:layout_marginTop="48dp"
+            android:background="@drawable/bg_selection_bar"
+            android:elevation="10dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:paddingTop="8dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="8dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/tvSelectionCount"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="1 selected"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <View
+                android:layout_width="1dp"
+                android:layout_height="20dp"
+                android:layout_marginStart="12dp"
+                android:layout_marginEnd="12dp"
+                android:background="#475569" />
+
+            <TextView
+                android:id="@+id/btnSelectionColor"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:padding="6dp"
+                android:text="Color"
+                android:textColor="#FBBF24"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/btnSelectionDuplicate"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:padding="6dp"
+                android:text="Duplicate"
+                android:textColor="#93C5FD"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/btnSelectionAlign"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:padding="6dp"
+                android:text="Align ▾"
+                android:textColor="#C084FC"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/btnSelectionDelete"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:padding="6dp"
+                android:text="Delete"
+                android:textColor="#F87171"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/btnSelectionClose"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:padding="6dp"
+                android:text="✕"
+                android:textColor="#94A3B8"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+        <!-- Floating Zoom HUD Controller (Bottom-Left) -->
+        <LinearLayout
+            android:id="@+id/zoomHud"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|start"
+            android:layout_marginStart="12dp"
+            android:layout_marginBottom="56dp"
+            android:background="@drawable/bg_zoom_hud"
+            android:elevation="10dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="8dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="8dp"
+            android:paddingBottom="4dp">
+
+            <TextView
+                android:id="@+id/btnZoomOut"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:gravity="center"
+                android:text="−"
+                android:textColor="#E2E8F0"
+                android:textSize="20sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvZoomPercent"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp"
+                android:text="100%"
+                android:textColor="#38BDF8"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/btnZoomIn"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:gravity="center"
+                android:text="+"
+                android:textColor="#E2E8F0"
+                android:textSize="20sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/btnZoomFitHud"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:background="?attr/selectableItemBackground"
+                android:paddingStart="8dp"
+                android:paddingTop="4dp"
+                android:paddingEnd="8dp"
+                android:paddingBottom="4dp"
+                android:text="Fit"
+                android:textColor="#A7F3D0"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <!-- TLDraw-Style Non-blocking Floating Tool Settings Panel (Bottom-Right) -->
+        <FrameLayout
+            android:id="@+id/toolSettingsPanel"
+            android:layout_width="268dp"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:layout_marginEnd="12dp"
+            android:layout_marginBottom="54dp"
+            android:background="@drawable/bg_tool_settings_panel"
+            android:elevation="16dp"
+            android:padding="12dp"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <!-- Header: Tool Title + Close button -->
+                <RelativeLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="8dp">
+
+                    <TextView
+                        android:id="@+id/tvToolSettingsTitle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_alignParentStart="true"
+                        android:layout_centerVertical="true"
+                        android:text="Tool Settings"
+                        android:textColor="#1E293B"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+
+                    <ImageButton
+                        android:id="@+id/btnCloseToolSettings"
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:layout_alignParentEnd="true"
+                        android:layout_centerVertical="true"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="Close tool options"
+                        android:src="@drawable/ic_close"
+                        app:tint="#64748B" />
+                </RelativeLayout>
+
+                <!-- 1. DRAW / PEN SETTINGS -->
+                <LinearLayout
+                    android:id="@+id/panelDrawSettings"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="4dp"
+                        android:text="Stroke Width"
+                        android:textColor="#64748B"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="32dp"
+                        android:gravity="center"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:id="@+id/btnDrawSizeS"
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_marginEnd="3dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/bg_tool_pill"
+                            android:gravity="center"
+                            android:text="3px"
+                            android:textColor="#1E293B"
+                            android:textSize="11sp" />
+
+                        <TextView
+                            android:id="@+id/btnDrawSizeM"
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_marginEnd="3dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/bg_tool_pill"
+                            android:gravity="center"
+                            android:text="6px"
+                            android:textColor="#1E293B"
+                            android:textSize="11sp" />
+
+                        <TextView
+                            android:id="@+id/btnDrawSizeL"
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_marginEnd="3dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/bg_tool_pill"
+                            android:gravity="center"
+                            android:text="12px"
+                            android:textColor="#1E293B"
+                            android:textSize="11sp" />
+
+                        <TextView
+                            android:id="@+id/btnDrawSizeXL"
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_weight="1.2"
+                            android:background="@drawable/bg_tool_pill"
+                            android:gravity="center"
+                            android:text="Highlighter"
+                            android:textColor="#1E293B"
+                            android:textSize="10sp" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:layout_marginBottom="4dp"
+                        android:text="Color Palette"
+                        android:textColor="#64748B"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+
+                    <LinearLayout
+                        android:id="@+id/layoutDrawSwatchesRow1"
+                        android:layout_width="match_parent"
+                        android:layout_height="30dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal" />
+
+                    <LinearLayout
+                        android:id="@+id/layoutDrawSwatchesRow2"
+                        android:layout_width="match_parent"
+                        android:layout_height="30dp"
+                        android:layout_marginTop="4dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal" />
+
+                    <Button
+                        android:id="@+id/btnDrawLayer"
+                        android:layout_width="match_parent"
+                        android:layout_height="36dp"
+                        android:layout_marginTop="8dp"
+                        android:background="@drawable/bg_tool_pill"
+                        android:text="Drawing: Over Cards (Foreground)"
+                        android:textAllCaps="false"
+                        android:textColor="#1E293B"
+                        android:textSize="11sp" />
+                </LinearLayout>
+
+                <!-- 2. ERASER SETTINGS -->
+                <LinearLayout
+                    android:id="@+id/panelEraserSettings"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="4dp"
+                        android:text="Eraser Size"
+                        android:textColor="#64748B"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="34dp"
+                        android:gravity="center"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:id="@+id/btnEraserSizeS"
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_marginEnd="4dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/bg_tool_pill"
+                            android:gravity="center"
+                            android:text="Small (16px)"
+                            android:textColor="#1E293B"
+                            android:textSize="11sp" />
+
+                        <TextView
+                            android:id="@+id/btnEraserSizeM"
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_marginEnd="4dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/bg_tool_pill"
+                            android:gravity="center"
+                            android:text="Medium (28px)"
+                            android:textColor="#1E293B"
+                            android:textSize="11sp" />
+
+                        <TextView
+                            android:id="@+id/btnEraserSizeL"
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_weight="1"
+                            android:background="@drawable/bg_tool_pill"
+                            android:gravity="center"
+                            android:text="Large (56px)"
+                            android:textColor="#1E293B"
+                            android:textSize="11sp" />
+                    </LinearLayout>
+
+                    <Button
+                        android:id="@+id/btnClearCanvasInk"
+                        android:layout_width="match_parent"
+                        android:layout_height="36dp"
+                        android:layout_marginTop="10dp"
+                        android:background="@drawable/bg_danger_pill"
+                        android:text="🗑 Clear All Ink"
+                        android:textAllCaps="false"
+                        android:textColor="#EF4444"
+                        android:textSize="11sp" />
+                </LinearLayout>
+
+                <!-- 3. CONNECTOR / ARROW SETTINGS -->
+                <LinearLayout
+                    android:id="@+id/panelConnectSettings"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="4dp"
+                        android:text="Arrow Style"
+                        android:textColor="#64748B"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="32dp"
+                        android:gravity="center"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:id="@+id/btnArrowPlain"
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_marginEnd="2dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/bg_tool_pill"
+                            android:gravity="center"
+                            android:text="—"
+                            android:textColor="#1E293B"
+                            android:textSize="14sp" />
+
+                        <TextView
+                            android:id="@+id/btnArrowSingle"
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_marginEnd="2dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/bg_tool_pill"
+                            android:gravity="center"
+                            android:text="→"
+                            android:textColor="#1E293B"
+                            android:textSize="14sp" />
+
+                        <TextView
+                            android:id="@+id/btnArrowDouble"
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_marginEnd="2dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/bg_tool_pill"
+                            android:gravity="center"
+                            android:text="↔"
+                            android:textColor="#1E293B"
+                            android:textSize="14sp" />
+
+                        <TextView
+                            android:id="@+id/btnArrowDot"
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_marginEnd="2dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/bg_tool_pill"
+                            android:gravity="center"
+                            android:text="●"
+                            android:textColor="#1E293B"
+                            android:textSize="14sp" />
+
+                        <TextView
+                            android:id="@+id/btnArrowDiamond"
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_weight="1"
+                            android:background="@drawable/bg_tool_pill"
+                            android:gravity="center"
+                            android:text="◆"
+                            android:textColor="#1E293B"
+                            android:textSize="14sp" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:layout_marginBottom="4dp"
+                        android:text="Line Color"
+                        android:textColor="#64748B"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+
+                    <LinearLayout
+                        android:id="@+id/layoutConnectSwatches"
+                        android:layout_width="match_parent"
+                        android:layout_height="30dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal" />
+                </LinearLayout>
+
+            </LinearLayout>
+        </FrameLayout>
+
+        <!-- Ground Bottom Tool Dock (Connected to Ground) -->
+        <LinearLayout
+            android:id="@+id/bottomDock"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|center_horizontal"
+            android:layout_marginBottom="0dp"
+            android:background="@drawable/bg_ground_dock"
+            android:elevation="14dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="10dp"
+            android:paddingTop="6dp"
+            android:paddingEnd="10dp"
+            android:paddingBottom="12dp">
+
+            <!-- 1. Text Note Tool -->
+            <ImageButton
+                android:id="@+id/toolText"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Quick Text Note"
+                android:src="@drawable/ic_tool_text"
+                app:tint="#4F46E5" />
+
+            <!-- 2. Shapes Tool -->
+            <ImageButton
+                android:id="@+id/toolShapes"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Shapes"
+                android:src="@drawable/ic_tool_shapes"
+                app:tint="#4F46E5" />
+
+            <!-- 3. Elements (+) Tool -->
+            <ImageButton
+                android:id="@+id/toolElements"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Elements (Checklist, Sticky Note, Sub-board, Photo)"
+                android:src="@drawable/ic_tool_elements"
+                app:tint="#4F46E5" />
+
+            <!-- 4. Freehand Draw / Pen Tool -->
+            <ImageButton
+                android:id="@+id/toolDraw"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Draw ink strokes"
+                android:src="@drawable/ic_tool_draw"
+                app:tint="#94A3B8" />
+
+            <!-- 5. Eraser Tool -->
+            <ImageButton
+                android:id="@+id/toolEraser"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Eraser"
+                android:src="@drawable/ic_tool_eraser"
+                app:tint="#94A3B8" />
+
+            <!-- 6. Connector (Arrow) Tool -->
+            <ImageButton
+                android:id="@+id/toolConnect"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Connect cards with arrows"
+                android:src="@drawable/ic_tool_connect"
+                app:tint="#94A3B8" />
+
+            <!-- Vertical Separator before Details Button -->
+            <View
+                android:id="@+id/dockDivider"
+                android:layout_width="1dp"
+                android:layout_height="22dp"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
+                android:background="#CBD5E1" />
+
+            <!-- 7. Tool Details / Style Button (Bottom Right of Dock) -->
+            <ImageButton
+                android:id="@+id/btnToolSettings"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Tool style details"
+                android:src="@drawable/ic_tool_style"
+                app:tint="#4F46E5" />
+
+            <!-- 8. Collapse Dock Button (▼) -->
+            <ImageButton
+                android:id="@+id/btnCollapseDock"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:layout_marginStart="2dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Collapse dock"
+                android:src="@drawable/ic_collapse_down"
+                app:tint="#94A3B8" />
+
+        </LinearLayout>
+
+        <!-- Ground Expand Dock Pill (▲) (Flush to Ground) -->
+        <ImageButton
+            android:id="@+id/btnExpandDock"
+            android:layout_width="52dp"
+            android:layout_height="28dp"
+            android:layout_gravity="bottom|center_horizontal"
+            android:layout_marginBottom="0dp"
+            android:paddingBottom="6dp"
+            android:background="@drawable/bg_ground_expand"
+            android:contentDescription="Expand dock"
+            android:elevation="12dp"
+            android:src="@drawable/ic_expand_up"
+            android:visibility="gone"
+            app:tint="#4F46E5" />
+
+    </FrameLayout>
+
+</FrameLayout>

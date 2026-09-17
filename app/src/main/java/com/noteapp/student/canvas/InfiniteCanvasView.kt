@@ -1,0 +1,971 @@
+package com.noteapp.student.canvas
+
+import android.content.Context
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.RectF
+import android.util.AttributeSet
+import android.view.MotionEvent
+import android.view.ScaleGestureDetector
+import android.widget.FrameLayout
+import com.noteapp.student.settings.GridStyle
+import com.noteapp.student.settings.ThemeColors
+import com.noteapp.student.settings.ThemeManager
+import com.noteapp.student.settings.ThemeType
+import com.noteapp.student.undo.CanvasCommand
+import com.noteapp.student.undo.UndoRedoManager
+import kotlin.math.max
+import kotlin.math.min
+
+/**
+ * Flagship infinite canvas surface supporting:
+ * - Multi-selection (marquee/lasso & multi-box tap)
+ * - Group moving & group styling
+ * - Full Undo/Redo command history
+ * - Freehand inking & eraser
+ * - Directional connector links
+ * - Scaled dynamic dot grid background
+ */
+class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameLayout(context, attrs) {
+
+    companion object {
+        const val WORLD_SIZE = 24000f
+        const val MIN_SCALE = 0.15f
+        const val MAX_SCALE = 4.0f
+    }
+
+    val contentLayer: FrameLayout = FrameLayout(context)
+    val connectorOverlay: ConnectorOverlayView = ConnectorOverlayView(context)
+    val bgDrawingOverlay: DrawingOverlayView = DrawingOverlayView(context)
+    val fgDrawingOverlay: DrawingOverlayView = DrawingOverlayView(context)
+    var isDrawingOnForeground: Boolean = false
+    val drawingOverlay: DrawingOverlayView get() = if (isDrawingOnForeground) fgDrawingOverlay else bgDrawingOverlay
+    val marqueeOverlay: MarqueeOverlayView = MarqueeOverlayView(context)
+    val selectionOverlay: SelectionTransformOverlayView = SelectionTransformOverlayView(context)
+
+    private val boxes = mutableListOf<NoteBoxView>()
+    private val connectors = mutableListOf<ConnectorData>()
+    val selectedBoxes = mutableSetOf<NoteBoxView>()
+
+    var activeTool: CanvasTool = CanvasTool.SELECT
+        set(value) {
+            field = value
+            updateToolState()
+        }
+
+    var undoRedoManager: UndoRedoManager? = null
+
+    var scale = 1f
+        private set
+
+    private var firstSelectedForConnect: NoteBoxView? = null
+    var onConnectorCreated: (() -> Unit)? = null
+    var onTextFocusEvent: (() -> Unit)? = null
+    var onSelectionChanged: ((selectedCount: Int) -> Unit)? = null
+    var onOpenSubBoardRequested: ((boardId: String) -> Unit)? = null
+    var onBackgroundTapped: (() -> Unit)? = null
+    var defaultConnectorStyle: String = "arrow"
+    var defaultConnectorColor: Int = Color.parseColor("#6366F1")
+
+    // Panning & Gestures
+    private var lastPanX = 0f
+    private var lastPanY = 0f
+    private var isPanning = false
+
+    // Marquee Box Selection
+    private var isMarqueeDragging = false
+    private var marqueeStartX = 0f
+    private var marqueeStartY = 0f
+    private val marqueeRect = RectF()
+
+    // Move command tracking
+    private val moveStartPositions = mutableMapOf<String, Pair<Float, Float>>()
+
+    // Dotted Canvas Grid Paint
+    private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#94A3B8")
+        style = Paint.Style.FILL
+    }
+    private val lineGridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#94A3B8")
+        style = Paint.Style.STROKE
+        strokeWidth = 1f
+    }
+
+    var gridStyle: GridStyle = GridStyle.DOTS
+        set(value) {
+            field = value
+            invalidate()
+        }
+    var gridSnap: Boolean = false
+    var onScaleChanged: ((scale: Float) -> Unit)? = null
+    var themeColors: ThemeColors = ThemeManager.getThemeColors(ThemeType.MODERN_CLEAN)
+        private set
+
+    private val autoColors = listOf(
+        Color.parseColor("#FFFFFF"),
+        Color.parseColor("#FEF3C7"),
+        Color.parseColor("#DBEAFE"),
+        Color.parseColor("#DCFCE7"),
+        Color.parseColor("#FCE7F3"),
+        Color.parseColor("#EDE9FE")
+    )
+    private var colorCursor = 0
+
+    private val scaleDetector = ScaleGestureDetector(
+        context,
+        object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScale(detector: ScaleGestureDetector): Boolean {
+                val oldScale = scale
+                var newScale = scale * detector.scaleFactor
+                newScale = max(MIN_SCALE, min(MAX_SCALE, newScale))
+                val focusX = detector.focusX
+                val focusY = detector.focusY
+                val contentX = (focusX - contentLayer.translationX) / oldScale
+                val contentY = (focusY - contentLayer.translationY) / oldScale
+                contentLayer.translationX = focusX - contentX * newScale
+                contentLayer.translationY = focusY - contentY * newScale
+                scale = newScale
+                contentLayer.scaleX = scale
+                contentLayer.scaleY = scale
+                onScaleChanged?.invoke(scale)
+                invalidate() // Redraw grid with new scale
+                return true
+            }
+        }
+    )
+
+    init {
+        setWillNotDraw(false)
+        clipChildren = false
+        clipToPadding = false
+
+        addView(contentLayer, LayoutParams(WORLD_SIZE.toInt(), WORLD_SIZE.toInt()))
+        contentLayer.clipChildren = false
+        contentLayer.pivotX = 0f
+        contentLayer.pivotY = 0f
+
+        // Layer 1: Connectors (under cards)
+        contentLayer.addView(
+            connectorOverlay,
+            LayoutParams(WORLD_SIZE.toInt(), WORLD_SIZE.toInt())
+        )
+        connectorOverlay.boxProvider = { boxes }
+        connectorOverlay.connectorProvider = { connectors }
+
+        // Layer 2: Freehand drawing strokes (Background layer - under cards)
+        contentLayer.addView(
+            bgDrawingOverlay,
+            LayoutParams(WORLD_SIZE.toInt(), WORLD_SIZE.toInt())
+        )
+        bgDrawingOverlay.onStrokeFinished = { stroke ->
+            undoRedoManager?.record(object : CanvasCommand {
+                override fun execute() { bgDrawingOverlay.addStroke(stroke) }
+                override fun undo() { bgDrawingOverlay.removeStroke(stroke.id) }
+            })
+        }
+        bgDrawingOverlay.onStrokesErased = { erased ->
+            undoRedoManager?.record(object : CanvasCommand {
+                override fun execute() {
+                    for (s in erased) bgDrawingOverlay.removeStroke(s.id)
+                }
+                override fun undo() {
+                    for (s in erased) bgDrawingOverlay.addStroke(s)
+                }
+            })
+        }
+
+        // Layer 3: Freehand drawing strokes (Foreground layer - over cards)
+        contentLayer.addView(
+            fgDrawingOverlay,
+            LayoutParams(WORLD_SIZE.toInt(), WORLD_SIZE.toInt())
+        )
+        fgDrawingOverlay.onStrokeFinished = { stroke ->
+            undoRedoManager?.record(object : CanvasCommand {
+                override fun execute() { fgDrawingOverlay.addStroke(stroke) }
+                override fun undo() { fgDrawingOverlay.removeStroke(stroke.id) }
+            })
+        }
+        fgDrawingOverlay.onStrokesErased = { erased ->
+            undoRedoManager?.record(object : CanvasCommand {
+                override fun execute() {
+                    for (s in erased) fgDrawingOverlay.removeStroke(s.id)
+                }
+                override fun undo() {
+                    for (s in erased) fgDrawingOverlay.addStroke(s)
+                }
+            })
+        }
+
+        // Layer 4: MS Paint 8-handle Selection and Transform Overlay
+        contentLayer.addView(
+            selectionOverlay,
+            LayoutParams(WORLD_SIZE.toInt(), WORLD_SIZE.toInt())
+        )
+        selectionOverlay.onBoxMoved = { dx, dy -> handleBoxMoved(dx, dy) }
+        selectionOverlay.onBoxMoveFinished = { handleBoxMoveFinished() }
+        selectionOverlay.onBoxResized = {
+            connectorOverlay.invalidate()
+            handleBoxResized()
+        }
+        selectionOverlay.onBoxResizeFinished = { box, oldX, oldY, oldW, oldH ->
+            val finalX = box.data.x
+            val finalY = box.data.y
+            val finalW = box.data.width
+            val finalH = box.data.height
+            if (oldX != finalX || oldY != finalY || oldW != finalW || oldH != finalH) {
+                undoRedoManager?.record(object : CanvasCommand {
+                    override fun execute() {
+                        box.data.x = finalX
+                        box.data.y = finalY
+                        box.data.width = finalW
+                        box.data.height = finalH
+                        box.x = finalX
+                        box.y = finalY
+                        val lp = box.layoutParams
+                        lp.width = finalW.toInt()
+                        lp.height = finalH.toInt()
+                        box.layoutParams = lp
+                        selectionOverlay.invalidate()
+                        connectorOverlay.invalidate()
+                    }
+                    override fun undo() {
+                        box.data.x = oldX
+                        box.data.y = oldY
+                        box.data.width = oldW
+                        box.data.height = oldH
+                        box.x = oldX
+                        box.y = oldY
+                        val lp = box.layoutParams
+                        lp.width = oldW.toInt()
+                        lp.height = oldH.toInt()
+                        box.layoutParams = lp
+                        selectionOverlay.invalidate()
+                        connectorOverlay.invalidate()
+                    }
+                })
+            }
+        }
+        selectionOverlay.onMenuRequested = { box ->
+            box.showBoxMenu()
+        }
+
+        // Layer 5: Selection marquee overlay
+        contentLayer.addView(
+            marqueeOverlay,
+            LayoutParams(WORLD_SIZE.toInt(), WORLD_SIZE.toInt())
+        )
+
+        post {
+            contentLayer.translationX = width / 2f - WORLD_SIZE / 2f
+            contentLayer.translationY = height / 2f - WORLD_SIZE / 2f
+            invalidate()
+        }
+    }
+
+    fun applyTheme(colors: ThemeColors) {
+        themeColors = colors
+        boxes.forEach { it.themeColors = colors }
+        setBackgroundColor(colors.canvasBg)
+        dotPaint.color = colors.gridDot
+        lineGridPaint.color = colors.gridDot
+        selectionOverlay.updateTheme(colors.topBarText)
+        invalidate()
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        if (gridStyle == GridStyle.NONE) return
+
+        val density = resources.displayMetrics.density
+        val baseStep = 32f * density
+        val step = baseStep * scale
+        if (step < 12f) return // Avoid rendering too fine a grid when zoomed way out
+
+        val startX = (contentLayer.translationX % step + step) % step
+        val startY = (contentLayer.translationY % step + step) % step
+
+        if (gridStyle == GridStyle.DOTS) {
+            val dotRadius = (1.5f * density).coerceAtLeast(1.0f)
+            dotPaint.alpha = if (scale < 0.5f) 70 else 120
+
+            var x = startX
+            while (x < width) {
+                var y = startY
+                while (y < height) {
+                    canvas.drawCircle(x, y, dotRadius, dotPaint)
+                    y += step
+                }
+                x += step
+            }
+        } else if (gridStyle == GridStyle.LINES) {
+            lineGridPaint.alpha = if (scale < 0.5f) 30 else 55
+
+            var x = startX
+            while (x < width) {
+                canvas.drawLine(x, 0f, x, height.toFloat(), lineGridPaint)
+                x += step
+            }
+            var y = startY
+            while (y < height) {
+                canvas.drawLine(0f, y, width.toFloat(), y, lineGridPaint)
+                y += step
+            }
+        }
+    }
+
+    private fun updateToolState() {
+        val isDrawing = (activeTool == CanvasTool.DRAW)
+        val isEraser = (activeTool == CanvasTool.ERASER)
+        bgDrawingOverlay.isDrawingEnabled = isDrawing && !isDrawingOnForeground
+        bgDrawingOverlay.isEraserMode = isEraser
+        fgDrawingOverlay.isDrawingEnabled = isDrawing && isDrawingOnForeground
+        fgDrawingOverlay.isEraserMode = isEraser
+
+        val isConnect = (activeTool == CanvasTool.CONNECT)
+        firstSelectedForConnect?.setHighlighted(false)
+        firstSelectedForConnect = null
+        boxes.forEach { it.setConnectMode(isConnect) }
+
+        if (activeTool != CanvasTool.SELECT) {
+            clearSelection()
+        }
+    }
+
+    override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
+        // Multi-touch gestures (pinch to zoom) are always intercepted by canvas
+        if (ev.pointerCount >= 2) return true
+        if (activeTool == CanvasTool.PAN) return true
+        if (activeTool == CanvasTool.DRAW || activeTool == CanvasTool.ERASER) return true
+        return false
+    }
+
+    private var initialTouchX = 0f
+    private var initialTouchY = 0f
+    private var hasPannedSignificant = false
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        scaleDetector.onTouchEvent(event)
+        if (scaleDetector.isInProgress) return true
+
+        val contentX = (event.x - contentLayer.translationX) / scale
+        val contentY = (event.y - contentLayer.translationY) / scale
+
+        // Freehand drawing / erasing
+        if (activeTool == CanvasTool.DRAW || activeTool == CanvasTool.ERASER) {
+            val activeOverlay = if (isDrawingOnForeground) fgDrawingOverlay else bgDrawingOverlay
+            activeOverlay.handleDrawingTouchEvent(event, contentX, contentY)
+            if (activeTool == CanvasTool.ERASER) {
+                val otherOverlay = if (isDrawingOnForeground) bgDrawingOverlay else fgDrawingOverlay
+                otherOverlay.handleDrawingTouchEvent(event, contentX, contentY)
+            }
+            return true
+        }
+
+        // Natural Navigation & 1-finger canvas panning:
+        // 1-finger drag on background pans canvas. Tap on background deselects all cards.
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                isPanning = true
+                lastPanX = event.x
+                lastPanY = event.y
+                initialTouchX = event.x
+                initialTouchY = event.y
+                hasPannedSignificant = false
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (isPanning) {
+                    val dx = event.x - lastPanX
+                    val dy = event.y - lastPanY
+                    if (Math.hypot((event.x - initialTouchX).toDouble(), (event.y - initialTouchY).toDouble()) > 10.0) {
+                        hasPannedSignificant = true
+                    }
+                    contentLayer.translationX += dx
+                    contentLayer.translationY += dy
+                    lastPanX = event.x
+                    lastPanY = event.y
+                    invalidate()
+                    onScaleChanged?.invoke(scale)
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_UP -> {
+                if (isPanning && !hasPannedSignificant && event.actionMasked == MotionEvent.ACTION_UP) {
+                    // Tap on empty background -> deselect all cards
+                    clearSelection()
+                    onBackgroundTapped?.invoke()
+                }
+                isPanning = false
+            }
+        }
+        return true
+    }
+
+    // ---------- Box Factory & Operations ----------
+
+    fun addBox(
+        kind: BoxKind = BoxKind.TEXT,
+        shapeType: ShapeType = ShapeType.ROUNDED_RECT,
+        imagePath: String? = null,
+        targetBoardId: String? = null,
+        targetBoardName: String? = null
+    ): NoteBoxView {
+        val viewportCenterContentX = (width / 2f - contentLayer.translationX) / scale
+        val viewportCenterContentY = (height / 2f - contentLayer.translationY) / scale
+
+        val defaultW = when (kind) {
+            BoxKind.IMAGE -> 240f
+            BoxKind.BOARD -> 200f
+            BoxKind.SHAPE -> if (shapeType == ShapeType.CIRCLE) 200f else 220f
+            else -> 260f
+        }
+        val defaultH = when (kind) {
+            BoxKind.IMAGE -> 240f
+            BoxKind.BOARD -> 150f
+            BoxKind.SHAPE -> if (shapeType == ShapeType.CIRCLE) 200f else 180f
+            else -> 170f
+        }
+
+        val color = if (kind == BoxKind.SHAPE && shapeType == ShapeType.STICKY_NOTE) {
+            Color.parseColor("#FEF08A") // Warm sticky note yellow
+        } else {
+            autoColors[colorCursor % autoColors.size].also { colorCursor++ }
+        }
+
+        val data = NoteBoxData(
+            x = viewportCenterContentX - defaultW / 2f,
+            y = viewportCenterContentY - defaultH / 2f,
+            width = defaultW,
+            height = defaultH,
+            kind = kind,
+            shapeType = shapeType,
+            targetBoardId = targetBoardId,
+            targetBoardName = targetBoardName,
+            imagePath = imagePath,
+            boxColor = color
+        )
+
+        val box = addBoxFromData(data)
+        clearSelection()
+        selectedBoxes.add(box)
+        box.setSelectedState(true)
+        selectionOverlay.targetBox = box
+        selectionOverlay.bringToFront()
+        marqueeOverlay.bringToFront()
+        selectionOverlay.invalidate()
+        onSelectionChanged?.invoke(selectedBoxes.size)
+
+        if (kind == BoxKind.TEXT || kind == BoxKind.SHAPE) {
+            box.post { box.focusTextInput() }
+        }
+
+        // Record Undo
+        undoRedoManager?.record(object : CanvasCommand {
+            override fun execute() {
+                if (!boxes.contains(box)) {
+                    boxes.add(box)
+                    contentLayer.addView(box)
+                    fgDrawingOverlay.bringToFront()
+                    selectionOverlay.bringToFront()
+                    marqueeOverlay.bringToFront()
+                    connectorOverlay.invalidate()
+                }
+            }
+            override fun undo() {
+                removeBoxInternal(box)
+            }
+        })
+
+        return box
+    }
+
+    fun addBoxFromData(data: NoteBoxData): NoteBoxView {
+        val box = NoteBoxView(
+            context = context,
+            data = data,
+            onMoved = { dx, dy -> handleBoxMoved(dx, dy) },
+            onMoveFinished = { handleBoxMoveFinished() },
+            onResized = { handleBoxResized() },
+            onSelectedForConnect = { handleConnectSelection(it) },
+            onDeleteRequested = { deleteSingleBox(it) },
+            onDuplicateRequested = { duplicateSingleBox(it) },
+            onOpenSubBoard = { boardId -> onOpenSubBoardRequested?.invoke(boardId) },
+            onBoxTapped = { handleBoxTapped(it) },
+            onTextFocusChanged = { onTextFocusEvent?.invoke() },
+            getScale = { scale }
+        )
+        boxes.add(box)
+        contentLayer.addView(box)
+        fgDrawingOverlay.bringToFront()
+        selectionOverlay.bringToFront()
+        marqueeOverlay.bringToFront()
+        box.themeColors = themeColors
+        box.setConnectMode(activeTool == CanvasTool.CONNECT)
+        return box
+    }
+
+    private fun handleBoxTapped(box: NoteBoxView) {
+        if (activeTool == CanvasTool.CONNECT) {
+            handleConnectSelection(box)
+            return
+        }
+        if (!selectedBoxes.contains(box)) {
+            clearSelection()
+            selectedBoxes.add(box)
+            box.setSelectedState(true)
+        }
+        selectionOverlay.targetBox = box
+        selectionOverlay.bringToFront()
+        marqueeOverlay.bringToFront()
+        selectionOverlay.invalidate()
+        onSelectionChanged?.invoke(selectedBoxes.size)
+    }
+
+    // ---------- Group Moving ----------
+
+    private fun handleBoxMoved(dx: Float, dy: Float) {
+        if (moveStartPositions.isEmpty()) {
+            for (b in selectedBoxes) {
+                moveStartPositions[b.data.id] = Pair(b.data.x, b.data.y)
+            }
+        }
+        // Move all selected boxes simultaneously
+        for (selected in selectedBoxes) {
+            selected.applyMoveDelta(dx, dy)
+        }
+        selectionOverlay.invalidate()
+        connectorOverlay.invalidate()
+    }
+
+    private fun handleBoxMoveFinished() {
+        if (moveStartPositions.isNotEmpty()) {
+            val initial = moveStartPositions.toMap()
+
+            // Optional grid snap
+            if (gridSnap) {
+                val snap = 24f
+                for (box in selectedBoxes) {
+                    val sx = Math.round(box.data.x / snap) * snap
+                    val sy = Math.round(box.data.y / snap) * snap
+                    box.data.x = sx
+                    box.data.y = sy
+                    box.x = sx
+                    box.y = sy
+                }
+            }
+            selectionOverlay.invalidate()
+            connectorOverlay.invalidate()
+
+            val final = selectedBoxes.associate { it.data.id to Pair(it.data.x, it.data.y) }
+            moveStartPositions.clear()
+
+            undoRedoManager?.record(object : CanvasCommand {
+                override fun execute() {
+                    for (box in boxes) {
+                        final[box.data.id]?.let { (fx, fy) ->
+                            box.data.x = fx
+                            box.data.y = fy
+                            box.x = fx
+                            box.y = fy
+                        }
+                    }
+                    selectionOverlay.invalidate()
+                    connectorOverlay.invalidate()
+                }
+                override fun undo() {
+                    for (box in boxes) {
+                        initial[box.data.id]?.let { (ix, iy) ->
+                            box.data.x = ix
+                            box.data.y = iy
+                            box.x = ix
+                            box.y = iy
+                        }
+                    }
+                    selectionOverlay.invalidate()
+                    connectorOverlay.invalidate()
+                }
+            })
+        }
+    }
+
+    private fun handleBoxResized() {
+        selectionOverlay.invalidate()
+        connectorOverlay.invalidate()
+    }
+
+    // ---------- Multi-Select Operations ----------
+
+    fun selectAll() {
+        selectedBoxes.clear()
+        selectedBoxes.addAll(boxes)
+        boxes.forEach { it.setSelectedState(true) }
+        selectionOverlay.targetBox = boxes.lastOrNull()
+        selectionOverlay.bringToFront()
+        marqueeOverlay.bringToFront()
+        selectionOverlay.invalidate()
+        onSelectionChanged?.invoke(selectedBoxes.size)
+    }
+
+    fun dismissKeyboardAndClearFocus() {
+        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
+        val currentFocusView = findFocus() ?: this
+        imm?.hideSoftInputFromWindow(windowToken, 0)
+        currentFocusView.clearFocus()
+    }
+
+    fun clearSelection() {
+        dismissKeyboardAndClearFocus()
+        selectedBoxes.forEach { it.setSelectedState(false) }
+        selectedBoxes.clear()
+        selectionOverlay.targetBox = null
+        selectionOverlay.invalidate()
+        onSelectionChanged?.invoke(0)
+    }
+
+    fun deleteSelectedBoxes() {
+        if (selectedBoxes.isEmpty()) return
+        val toDelete = selectedBoxes.toList()
+        val deletedData = toDelete.map { it.data.copyDeep() }
+        val affectedConnectors = connectors.filter { conn ->
+            toDelete.any { it.data.id == conn.fromId || it.data.id == conn.toId }
+        }
+
+        for (box in toDelete) {
+            removeBoxInternal(box)
+        }
+        clearSelection()
+
+        undoRedoManager?.record(object : CanvasCommand {
+            override fun execute() {
+                for (d in deletedData) {
+                    boxes.firstOrNull { it.data.id == d.id }?.let { removeBoxInternal(it) }
+                }
+            }
+            override fun undo() {
+                for (d in deletedData) {
+                    addBoxFromData(d.copyDeep())
+                }
+                connectors.addAll(affectedConnectors)
+                connectorOverlay.invalidate()
+            }
+        })
+    }
+
+    fun setSelectedBoxesColor(color: Int) {
+        if (selectedBoxes.isEmpty()) return
+        val prevColors = selectedBoxes.associate { it.data.id to it.data.boxColor }
+        for (b in selectedBoxes) {
+            b.setBoxColor(color)
+        }
+
+        undoRedoManager?.record(object : CanvasCommand {
+            override fun execute() {
+                for (b in boxes) {
+                    if (prevColors.containsKey(b.data.id)) b.setBoxColor(color)
+                }
+            }
+            override fun undo() {
+                for (b in boxes) {
+                    prevColors[b.data.id]?.let { b.setBoxColor(it) }
+                }
+            }
+        })
+    }
+
+    fun duplicateSelectedBoxes() {
+        if (selectedBoxes.isEmpty()) return
+        val duplicatedViews = mutableListOf<NoteBoxView>()
+        for (b in selectedBoxes) {
+            val copyData = b.data.copyDeep().apply {
+                x += 40f
+                y += 40f
+            }
+            val newView = addBoxFromData(copyData)
+            duplicatedViews.add(newView)
+        }
+        clearSelection()
+        for (v in duplicatedViews) {
+            selectedBoxes.add(v)
+            v.setSelectedState(true)
+        }
+        onSelectionChanged?.invoke(selectedBoxes.size)
+    }
+
+    private fun deleteSingleBox(box: NoteBoxView) {
+        selectedBoxes.clear()
+        selectedBoxes.add(box)
+        deleteSelectedBoxes()
+    }
+
+    private fun duplicateSingleBox(box: NoteBoxView) {
+        selectedBoxes.clear()
+        selectedBoxes.add(box)
+        duplicateSelectedBoxes()
+    }
+
+    private fun removeBoxInternal(box: NoteBoxView) {
+        boxes.remove(box)
+        selectedBoxes.remove(box)
+        connectors.removeAll { it.fromId == box.data.id || it.toId == box.data.id }
+        contentLayer.removeView(box)
+        if (firstSelectedForConnect === box) firstSelectedForConnect = null
+        connectorOverlay.invalidate()
+    }
+
+    // ---------- Connectors ----------
+
+    private fun handleConnectSelection(box: NoteBoxView) {
+        val current = firstSelectedForConnect
+        if (current == null) {
+            firstSelectedForConnect = box
+            box.setHighlighted(true)
+        } else if (current !== box) {
+            val newConn = ConnectorData(
+                fromId = current.data.id,
+                toId = box.data.id,
+                style = defaultConnectorStyle,
+                color = defaultConnectorColor
+            )
+            connectors.add(newConn)
+            current.setHighlighted(false)
+            firstSelectedForConnect = null
+            connectorOverlay.invalidate()
+            onConnectorCreated?.invoke()
+
+            undoRedoManager?.record(object : CanvasCommand {
+                override fun execute() {
+                    if (!connectors.contains(newConn)) connectors.add(newConn)
+                    connectorOverlay.invalidate()
+                }
+                override fun undo() {
+                    connectors.remove(newConn)
+                    connectorOverlay.invalidate()
+                }
+            })
+        }
+    }
+
+    // ---------- Alignment Tools ----------
+
+    fun alignSelectedLeft() {
+        if (selectedBoxes.size < 2) return
+        val minX = selectedBoxes.minOf { it.data.x }
+        val prevPositions = selectedBoxes.associate { it.data.id to Pair(it.data.x, it.data.y) }
+        for (b in selectedBoxes) {
+            b.data.x = minX
+            b.x = minX
+        }
+        connectorOverlay.invalidate()
+
+        undoRedoManager?.record(object : CanvasCommand {
+            override fun execute() {
+                for (b in selectedBoxes) { b.data.x = minX; b.x = minX }
+                connectorOverlay.invalidate()
+            }
+            override fun undo() {
+                for (b in selectedBoxes) {
+                    prevPositions[b.data.id]?.let { (px, _) ->
+                        b.data.x = px; b.x = px
+                    }
+                }
+                connectorOverlay.invalidate()
+            }
+        })
+    }
+
+    fun alignSelectedTop() {
+        if (selectedBoxes.size < 2) return
+        val minY = selectedBoxes.minOf { it.data.y }
+        val prevPositions = selectedBoxes.associate { it.data.id to Pair(it.data.x, it.data.y) }
+        for (b in selectedBoxes) {
+            b.data.y = minY
+            b.y = minY
+        }
+        connectorOverlay.invalidate()
+
+        undoRedoManager?.record(object : CanvasCommand {
+            override fun execute() {
+                for (b in selectedBoxes) { b.data.y = minY; b.y = minY }
+                connectorOverlay.invalidate()
+            }
+            override fun undo() {
+                for (b in selectedBoxes) {
+                    prevPositions[b.data.id]?.let { (_, py) ->
+                        b.data.y = py; b.y = py
+                    }
+                }
+                connectorOverlay.invalidate()
+            }
+        })
+    }
+
+    fun distributeSelectedHorizontally() {
+        if (selectedBoxes.size < 3) return
+        val sorted = selectedBoxes.sortedBy { it.data.x }
+        val firstX = sorted.first().data.x
+        val lastX = sorted.last().data.x
+        val totalSpan = lastX - firstX
+        val spacing = totalSpan / (sorted.size - 1)
+        val prevPositions = selectedBoxes.associate { it.data.id to Pair(it.data.x, it.data.y) }
+
+        for (i in sorted.indices) {
+            val targetX = firstX + spacing * i
+            sorted[i].data.x = targetX
+            sorted[i].x = targetX
+        }
+        connectorOverlay.invalidate()
+
+        undoRedoManager?.record(object : CanvasCommand {
+            override fun execute() {
+                for (i in sorted.indices) {
+                    val targetX = firstX + spacing * i
+                    sorted[i].data.x = targetX
+                    sorted[i].x = targetX
+                }
+                connectorOverlay.invalidate()
+            }
+            override fun undo() {
+                for (b in selectedBoxes) {
+                    prevPositions[b.data.id]?.let { (px, _) ->
+                        b.data.x = px; b.x = px
+                    }
+                }
+                connectorOverlay.invalidate()
+            }
+        })
+    }
+
+    // ---------- Camera & Zoom Controls ----------
+
+    fun zoomToFit() {
+        if (boxes.isEmpty()) {
+            resetZoom()
+            return
+        }
+        var minX = Float.POSITIVE_INFINITY
+        var minY = Float.POSITIVE_INFINITY
+        var maxX = Float.NEGATIVE_INFINITY
+        var maxY = Float.NEGATIVE_INFINITY
+        for (box in boxes) {
+            minX = min(minX, box.data.x)
+            minY = min(minY, box.data.y)
+            maxX = max(maxX, box.data.x + box.data.width)
+            maxY = max(maxY, box.data.y + box.data.height)
+        }
+        val padding = 80f
+        val contentW = (maxX - minX) + padding * 2
+        val contentH = (maxY - minY) + padding * 2
+
+        val fitScaleX = width / contentW
+        val fitScaleY = height / contentH
+        val targetScale = min(fitScaleX, fitScaleY).coerceIn(MIN_SCALE, 1.5f)
+
+        val centerX = (minX + maxX) / 2f
+        val centerY = (minY + maxY) / 2f
+
+        scale = targetScale
+        contentLayer.scaleX = scale
+        contentLayer.scaleY = scale
+        contentLayer.translationX = width / 2f - centerX * scale
+        contentLayer.translationY = height / 2f - centerY * scale
+        onScaleChanged?.invoke(scale)
+        invalidate()
+    }
+
+    fun resetZoom() {
+        setZoomLevel(1.0f)
+    }
+
+    fun zoomIn() {
+        setZoomLevel((scale * 1.25f).coerceIn(MIN_SCALE, MAX_SCALE))
+    }
+
+    fun zoomOut() {
+        setZoomLevel((scale * 0.8f).coerceIn(MIN_SCALE, MAX_SCALE))
+    }
+
+    fun setZoomLevel(targetScale: Float) {
+        val oldScale = scale
+        val newScale = targetScale.coerceIn(MIN_SCALE, MAX_SCALE)
+        val focusX = width / 2f
+        val focusY = height / 2f
+        val contentX = (focusX - contentLayer.translationX) / oldScale
+        val contentY = (focusY - contentLayer.translationY) / oldScale
+        contentLayer.translationX = focusX - contentX * newScale
+        contentLayer.translationY = focusY - contentY * newScale
+        scale = newScale
+        contentLayer.scaleX = scale
+        contentLayer.scaleY = scale
+        onScaleChanged?.invoke(scale)
+        invalidate()
+    }
+
+    fun boxCount() = boxes.size
+    fun allBoxViews(): List<NoteBoxView> = boxes.toList()
+    fun allConnectors(): List<ConnectorData> = connectors.toList()
+
+    fun clearAll() {
+        boxes.forEach { contentLayer.removeView(it) }
+        boxes.clear()
+        selectedBoxes.clear()
+        connectors.clear()
+        bgDrawingOverlay.clearStrokes()
+        fgDrawingOverlay.clearStrokes()
+        firstSelectedForConnect = null
+        connectorOverlay.invalidate()
+        onSelectionChanged?.invoke(0)
+    }
+
+    fun loadBoardData(board: BoardData) {
+        clearAll()
+        for (bd in board.boxes) {
+            addBoxFromData(bd)
+        }
+        connectors.addAll(board.connectors)
+        connectorOverlay.invalidate()
+        bgDrawingOverlay.setStrokes(board.strokes)
+        fgDrawingOverlay.setStrokes(board.fgStrokes)
+
+        if (board.scale in MIN_SCALE..MAX_SCALE && board.panX != 0f && board.panY != 0f) {
+            scale = board.scale
+            contentLayer.scaleX = scale
+            contentLayer.scaleY = scale
+            contentLayer.translationX = board.panX
+            contentLayer.translationY = board.panY
+        } else {
+            zoomToFit()
+        }
+        invalidate()
+    }
+
+    fun exportBoardData(meta: BoardMeta): BoardData {
+        return BoardData(
+            meta = meta,
+            boxes = boxes.map { it.data }.toMutableList(),
+            connectors = connectors.toMutableList(),
+            strokes = bgDrawingOverlay.getAllStrokes().toMutableList(),
+            fgStrokes = fgDrawingOverlay.getAllStrokes().toMutableList(),
+            panX = contentLayer.translationX,
+            panY = contentLayer.translationY,
+            scale = scale
+        )
+    }
+
+    fun teleportTo(worldX: Float, worldY: Float) {
+        contentLayer.translationX = width / 2f - worldX * scale
+        contentLayer.translationY = height / 2f - worldY * scale
+        invalidate()
+        onScaleChanged?.invoke(scale)
+    }
+
+    fun getCurrentViewport(): RectF {
+        val left = -contentLayer.translationX / scale
+        val top = -contentLayer.translationY / scale
+        val right = left + width / scale
+        val bottom = top + height / scale
+        return RectF(left, top, right, bottom)
+    }
+
+    fun getViewportPanX(): Float = contentLayer.translationX
+    fun getViewportPanY(): Float = contentLayer.translationY
+}

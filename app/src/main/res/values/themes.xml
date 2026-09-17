@@ -1,0 +1,9 @@
+<resources>
+    <style name="Theme.NoteApp" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">#4F46E5</item>
+        <item name="colorPrimaryVariant">#4338CA</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorSecondary">#F59E0B</item>
+        <item name="android:windowBackground">@color/canvas_bg</item>
+    </style>
+</resources>
