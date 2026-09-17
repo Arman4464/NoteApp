@@ -2,7 +2,9 @@ package com.noteapp.student
 
 import android.content.res.ColorStateList
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
@@ -13,6 +15,7 @@ import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -33,6 +36,8 @@ import com.noteapp.student.canvas.InfiniteCanvasView
 import com.noteapp.student.canvas.MinimapView
 import com.noteapp.student.canvas.NoteBoxView
 import com.noteapp.student.canvas.ShapeType
+import com.noteapp.student.canvas.TableData
+import com.noteapp.student.canvas.TableIndexStyle
 import com.noteapp.student.export.ExportManager
 import com.noteapp.student.home.BoardGridAdapter
 import com.noteapp.student.settings.AppIconManager
@@ -86,7 +91,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnUndo: ImageButton
     private lateinit var btnRedo: ImageButton
     private lateinit var btnZoomFit: ImageButton
-    private lateinit var btnExport: ImageButton
+    private lateinit var btnDownload: ImageButton
+    private lateinit var btnShare: ImageButton
     private lateinit var btnMenu: ImageButton
     private lateinit var btnCollapseTopBar: ImageButton
     private lateinit var btnExpandTopBar: ImageButton
@@ -99,9 +105,9 @@ class MainActivity : AppCompatActivity() {
     // Multi-Selection Bar
     private lateinit var selectionBar: LinearLayout
     private lateinit var tvSelectionCount: TextView
+    private lateinit var selectionBarDivider: View
     private lateinit var btnSelectionColor: TextView
     private lateinit var btnSelectionDuplicate: TextView
-    private lateinit var btnSelectionAlign: TextView
     private lateinit var btnSelectionDelete: TextView
     private lateinit var btnSelectionClose: TextView
 
@@ -115,7 +121,7 @@ class MainActivity : AppCompatActivity() {
     // Bottom Tool Dock & Controls
     private lateinit var bottomDock: LinearLayout
     private lateinit var toolText: ImageButton
-    private lateinit var toolShapes: ImageButton
+    private lateinit var toolImage: ImageButton
     private lateinit var toolElements: ImageButton
     private lateinit var toolDraw: ImageButton
     private lateinit var toolEraser: ImageButton
@@ -149,11 +155,18 @@ class MainActivity : AppCompatActivity() {
 
     // Connector Settings
     private lateinit var panelConnectSettings: LinearLayout
-    private lateinit var btnArrowPlain: TextView
-    private lateinit var btnArrowSingle: TextView
-    private lateinit var btnArrowDouble: TextView
-    private lateinit var btnArrowDot: TextView
-    private lateinit var btnArrowDiamond: TextView
+    private lateinit var btnConnectMode: Button
+    private lateinit var btnTailNone: TextView
+    private lateinit var btnTailArrow: TextView
+    private lateinit var btnTailDot: TextView
+    private lateinit var btnTailDiamond: TextView
+    private lateinit var btnTailBar: TextView
+    private lateinit var btnHeadTriangle: TextView
+    private lateinit var btnHeadOpen: TextView
+    private lateinit var btnHeadDot: TextView
+    private lateinit var btnHeadDiamond: TextView
+    private lateinit var btnHeadNone: TextView
+    private lateinit var btnConnectLayer: Button
     private lateinit var layoutConnectSwatches: LinearLayout
     private var currentConnectorColor: Int = Color.parseColor("#6366F1")
 
@@ -166,11 +179,32 @@ class MainActivity : AppCompatActivity() {
 
     private val imagesDir: File by lazy { File(filesDir, "images").apply { if (!exists()) mkdirs() } }
 
+    private var pendingDownloadType: String? = null // "pdf", "png", "project"
+
+    private val createDocumentLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("*/*")) { uri: Uri? ->
+        val type = pendingDownloadType
+        pendingDownloadType = null
+        if (uri != null && type != null) {
+            saveFileToSafUri(uri, type)
+        }
+    }
+
     private val pickImage = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri != null) {
             val savedPath = copyImageToInternalStorage(uri)
             if (savedPath != null) {
-                canvas.addBox(kind = BoxKind.IMAGE, imagePath = savedPath)
+                val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeFile(savedPath, options)
+                val imgW = options.outWidth
+                val imgH = options.outHeight
+                val (targetW, targetH) = if (imgW > 0 && imgH > 0) {
+                    val baseW = 280f
+                    val baseH = (baseW * imgH.toFloat() / imgW.toFloat()).coerceIn(120f, 600f)
+                    baseW to baseH
+                } else {
+                    260f to 260f
+                }
+                canvas.addBox(kind = BoxKind.IMAGE, imagePath = savedPath, customWidth = targetW, customHeight = targetH)
             } else {
                 Toast.makeText(this, "Failed to load image", Toast.LENGTH_SHORT).show()
             }
@@ -233,6 +267,11 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onStop() {
+        super.onStop()
+        AppIconManager.flushDisabledAliases(this)
+    }
+
     private fun setupBackNavigation() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -289,7 +328,8 @@ class MainActivity : AppCompatActivity() {
         btnUndo = findViewById(R.id.btnUndo)
         btnRedo = findViewById(R.id.btnRedo)
         btnZoomFit = findViewById(R.id.btnZoomFit)
-        btnExport = findViewById(R.id.btnExport)
+        btnDownload = findViewById(R.id.btnDownload)
+        btnShare = findViewById(R.id.btnShare)
         btnMenu = findViewById(R.id.btnMenu)
         btnCollapseTopBar = findViewById(R.id.btnCollapseTopBar)
         btnExpandTopBar = findViewById(R.id.btnExpandTopBar)
@@ -302,9 +342,9 @@ class MainActivity : AppCompatActivity() {
         // Selection Bar
         selectionBar = findViewById(R.id.selectionBar)
         tvSelectionCount = findViewById(R.id.tvSelectionCount)
+        selectionBarDivider = findViewById(R.id.selectionBarDivider)
         btnSelectionColor = findViewById(R.id.btnSelectionColor)
         btnSelectionDuplicate = findViewById(R.id.btnSelectionDuplicate)
-        btnSelectionAlign = findViewById(R.id.btnSelectionAlign)
         btnSelectionDelete = findViewById(R.id.btnSelectionDelete)
         btnSelectionClose = findViewById(R.id.btnSelectionClose)
 
@@ -318,7 +358,7 @@ class MainActivity : AppCompatActivity() {
         // Bottom Tool Dock
         bottomDock = findViewById(R.id.bottomDock)
         toolText = findViewById(R.id.toolText)
-        toolShapes = findViewById(R.id.toolShapes)
+        toolImage = findViewById(R.id.toolImage)
         toolElements = findViewById(R.id.toolElements)
         toolDraw = findViewById(R.id.toolDraw)
         toolEraser = findViewById(R.id.toolEraser)
@@ -349,11 +389,18 @@ class MainActivity : AppCompatActivity() {
         btnClearCanvasInk = findViewById(R.id.btnClearCanvasInk)
 
         panelConnectSettings = findViewById(R.id.panelConnectSettings)
-        btnArrowPlain = findViewById(R.id.btnArrowPlain)
-        btnArrowSingle = findViewById(R.id.btnArrowSingle)
-        btnArrowDouble = findViewById(R.id.btnArrowDouble)
-        btnArrowDot = findViewById(R.id.btnArrowDot)
-        btnArrowDiamond = findViewById(R.id.btnArrowDiamond)
+        btnConnectMode = findViewById(R.id.btnConnectMode)
+        btnTailNone = findViewById(R.id.btnTailNone)
+        btnTailArrow = findViewById(R.id.btnTailArrow)
+        btnTailDot = findViewById(R.id.btnTailDot)
+        btnTailDiamond = findViewById(R.id.btnTailDiamond)
+        btnTailBar = findViewById(R.id.btnTailBar)
+        btnHeadTriangle = findViewById(R.id.btnHeadTriangle)
+        btnHeadOpen = findViewById(R.id.btnHeadOpen)
+        btnHeadDot = findViewById(R.id.btnHeadDot)
+        btnHeadDiamond = findViewById(R.id.btnHeadDiamond)
+        btnHeadNone = findViewById(R.id.btnHeadNone)
+        btnConnectLayer = findViewById(R.id.btnConnectLayer)
         layoutConnectSwatches = findViewById(R.id.layoutConnectSwatches)
 
         // Text format toolbar
@@ -503,6 +550,8 @@ class MainActivity : AppCompatActivity() {
 
         canvas.onBackgroundTapped = {
             closeToolSettingsPanel()
+            canvas.dismissKeyboardAndClearFocus()
+            hideFormatToolbar()
         }
 
         canvas.onScaleChanged = { scale ->
@@ -535,9 +584,10 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Text Note created", Toast.LENGTH_SHORT).show()
         }
 
-        toolShapes.setOnClickListener {
+        toolImage.setOnClickListener {
             closeToolSettingsPanel()
-            showShapesChooser()
+            selectTool(CanvasTool.SELECT)
+            pickImage.launch("image/*")
         }
 
         toolElements.setOnClickListener {
@@ -614,7 +664,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         btnZoomFit.setOnClickListener { canvas.zoomToFit() }
-        btnExport.setOnClickListener { showExportDialog() }
+        btnDownload.setOnClickListener { showDownloadDialog() }
+        btnShare.setOnClickListener { showShareDialog() }
         btnMenu.setOnClickListener { showCanvasOverflowMenu() }
 
         // Collapsible Top Bar
@@ -655,10 +706,6 @@ class MainActivity : AppCompatActivity() {
         btnSelectionDuplicate.setOnClickListener {
             canvas.duplicateSelectedBoxes()
             Toast.makeText(this, "Duplicated", Toast.LENGTH_SHORT).show()
-        }
-
-        btnSelectionAlign.setOnClickListener {
-            showAlignmentMenu()
         }
 
         btnSelectionDelete.setOnClickListener {
@@ -724,7 +771,8 @@ class MainActivity : AppCompatActivity() {
         btnNavBack.imageTintList = ColorStateList.valueOf(colors.accent)
         btnMinimap.imageTintList = ColorStateList.valueOf(colors.accent)
         btnZoomFit.imageTintList = ColorStateList.valueOf(colors.topBarText)
-        btnExport.imageTintList = ColorStateList.valueOf(colors.accent)
+        btnDownload.imageTintList = ColorStateList.valueOf(colors.accent)
+        btnShare.imageTintList = ColorStateList.valueOf(colors.topBarText)
         btnMenu.imageTintList = ColorStateList.valueOf(colors.topBarText)
         val mutedIconColor = if (colors.isDark) Color.parseColor("#94A3B8") else Color.parseColor("#64748B")
         btnCollapseTopBar.imageTintList = ColorStateList.valueOf(mutedIconColor)
@@ -737,11 +785,26 @@ class MainActivity : AppCompatActivity() {
         bottomDock.backgroundTintList = ColorStateList.valueOf(colors.dockBg)
         btnCollapseDock.imageTintList = ColorStateList.valueOf(mutedIconColor)
         toolText.imageTintList = ColorStateList.valueOf(colors.accent)
-        toolShapes.imageTintList = ColorStateList.valueOf(colors.accent)
+        toolImage.imageTintList = ColorStateList.valueOf(colors.accent)
         toolElements.imageTintList = ColorStateList.valueOf(colors.accent)
         dockDivider.setBackgroundColor(colors.cardBorder)
         btnToolSettings.backgroundTintList = ColorStateList.valueOf(Color.TRANSPARENT)
         btnToolSettings.imageTintList = ColorStateList.valueOf(colors.accent)
+
+        // Selection Bar Theming
+        selectionBar.background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 16f * resources.displayMetrics.density
+            setColor(colors.topBarBg)
+            setStroke((1.5f * resources.displayMetrics.density).toInt(), colors.cardBorder)
+        }
+        tvSelectionCount.setTextColor(colors.topBarText)
+        btnSelectionColor.setTextColor(colors.accent)
+        btnSelectionDuplicate.setTextColor(colors.topBarText)
+        btnSelectionDelete.setTextColor(Color.parseColor("#EF4444"))
+        btnSelectionClose.setTextColor(mutedIconColor)
+        selectionBarDivider.setBackgroundColor(colors.cardBorder)
+        minimapView.applyTheme(colors)
 
         // Ground Expand Pill
         btnExpandDock.backgroundTintList = ColorStateList.valueOf(colors.dockBg)
@@ -764,8 +827,16 @@ class MainActivity : AppCompatActivity() {
         insetsController.isAppearanceLightStatusBars = !colors.isDark
         insetsController.isAppearanceLightNavigationBars = !colors.isDark
 
-        // 2. Header Brand & Action Buttons
-        ivHomeAppIcon.imageTintList = ColorStateList.valueOf(colors.accent)
+        // 2. Header Brand & Action Buttons (Theme-adaptive launcher app logo)
+        ivHomeAppIcon.imageTintList = null
+        val iconRes = when (appSettings.theme) {
+            ThemeType.MODERN_CLEAN -> R.drawable.ic_launcher_clean_foreground
+            ThemeType.MILANOTE_DARK -> R.drawable.ic_launcher_dark_foreground
+            ThemeType.WARM_PARCHMENT -> R.drawable.ic_launcher_parchment_foreground
+            ThemeType.CYBERPUNK_NEON -> R.drawable.ic_launcher_cyberpunk_foreground
+            ThemeType.SOLARIZED_MINT -> R.drawable.ic_launcher_mint_foreground
+        }
+        ivHomeAppIcon.setImageResource(iconRes)
         tvHomeAppTitle.setTextColor(colors.topBarText)
         val subtitleColor = if (colors.isDark) Color.parseColor("#94A3B8") else Color.parseColor("#64748B")
         tvHomeAppSubtitle.setTextColor(subtitleColor)
@@ -1007,18 +1078,37 @@ class MainActivity : AppCompatActivity() {
         }
 
         // --- CONNECTOR / ARROW PANEL SETUP ---
-        fun applyConnectorStyle(style: String) {
-            currentConnectorStyle = style
-            canvas.defaultConnectorStyle = style
-            updateConnectorStyleUI()
-            Toast.makeText(this, "Connector: $style", Toast.LENGTH_SHORT).show()
+        btnConnectMode.setOnClickListener {
+            canvas.isFreeArrowMode = !canvas.isFreeArrowMode
+            updateConnectorModeUI()
+            Toast.makeText(
+                this,
+                if (canvas.isFreeArrowMode) "Mode: Draw Arrow on Canvas" else "Mode: Connect Two Cards",
+                Toast.LENGTH_SHORT
+            ).show()
         }
 
-        btnArrowPlain.setOnClickListener { applyConnectorStyle("plain") }
-        btnArrowSingle.setOnClickListener { applyConnectorStyle("arrow") }
-        btnArrowDouble.setOnClickListener { applyConnectorStyle("double_arrow") }
-        btnArrowDot.setOnClickListener { applyConnectorStyle("dot") }
-        btnArrowDiamond.setOnClickListener { applyConnectorStyle("diamond") }
+        btnTailNone.setOnClickListener { canvas.selectedTailStyle = "none"; updateConnectorStyleUI() }
+        btnTailArrow.setOnClickListener { canvas.selectedTailStyle = "triangle"; updateConnectorStyleUI() }
+        btnTailDot.setOnClickListener { canvas.selectedTailStyle = "dot"; updateConnectorStyleUI() }
+        btnTailDiamond.setOnClickListener { canvas.selectedTailStyle = "diamond"; updateConnectorStyleUI() }
+        btnTailBar.setOnClickListener { canvas.selectedTailStyle = "bar"; updateConnectorStyleUI() }
+
+        btnHeadTriangle.setOnClickListener { canvas.selectedHeadStyle = "triangle"; updateConnectorStyleUI() }
+        btnHeadOpen.setOnClickListener { canvas.selectedHeadStyle = "open"; updateConnectorStyleUI() }
+        btnHeadDot.setOnClickListener { canvas.selectedHeadStyle = "dot"; updateConnectorStyleUI() }
+        btnHeadDiamond.setOnClickListener { canvas.selectedHeadStyle = "diamond"; updateConnectorStyleUI() }
+        btnHeadNone.setOnClickListener { canvas.selectedHeadStyle = "none"; updateConnectorStyleUI() }
+
+        btnConnectLayer.setOnClickListener {
+            canvas.isArrowForeground = !canvas.isArrowForeground
+            updateConnectorLayerUI()
+            Toast.makeText(
+                this,
+                if (canvas.isArrowForeground) "Arrow Layer: Over Cards (Foreground)" else "Arrow Layer: Behind Cards (Background)",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
 
         val connColors = listOf(
             Color.parseColor("#6366F1"), // Indigo (default)
@@ -1166,7 +1256,26 @@ class MainActivity : AppCompatActivity() {
         setPillSelected(btnEraserSizeL, radius > 35f)
     }
 
+    private fun updateConnectorModeUI() {
+        btnConnectMode.text = if (canvas.isFreeArrowMode) {
+            "Mode: Draw Arrow on Canvas"
+        } else {
+            "Mode: Connect Two Cards"
+        }
+    }
+
+    private fun updateConnectorLayerUI() {
+        btnConnectLayer.text = if (canvas.isArrowForeground) {
+            "Arrow Layer: Over Cards (Foreground)"
+        } else {
+            "Arrow Layer: Behind Cards (Background)"
+        }
+    }
+
     private fun updateConnectorStyleUI() {
+        updateConnectorModeUI()
+        updateConnectorLayerUI()
+
         fun setPillSelected(tv: TextView, selected: Boolean) {
             if (selected) {
                 val gd = GradientDrawable().apply {
@@ -1182,11 +1291,19 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        setPillSelected(btnArrowPlain, currentConnectorStyle == "plain")
-        setPillSelected(btnArrowSingle, currentConnectorStyle == "arrow")
-        setPillSelected(btnArrowDouble, currentConnectorStyle == "double_arrow")
-        setPillSelected(btnArrowDot, currentConnectorStyle == "dot")
-        setPillSelected(btnArrowDiamond, currentConnectorStyle == "diamond")
+        // Tail pills
+        setPillSelected(btnTailNone, canvas.selectedTailStyle == "none")
+        setPillSelected(btnTailArrow, canvas.selectedTailStyle == "triangle")
+        setPillSelected(btnTailDot, canvas.selectedTailStyle == "dot")
+        setPillSelected(btnTailDiamond, canvas.selectedTailStyle == "diamond")
+        setPillSelected(btnTailBar, canvas.selectedTailStyle == "bar")
+
+        // Head pills
+        setPillSelected(btnHeadTriangle, canvas.selectedHeadStyle == "triangle")
+        setPillSelected(btnHeadOpen, canvas.selectedHeadStyle == "open")
+        setPillSelected(btnHeadDot, canvas.selectedHeadStyle == "dot")
+        setPillSelected(btnHeadDiamond, canvas.selectedHeadStyle == "diamond")
+        setPillSelected(btnHeadNone, canvas.selectedHeadStyle == "none")
     }
 
     // ==================== ALIGNMENT TOOLS ====================
@@ -1354,17 +1471,320 @@ class MainActivity : AppCompatActivity() {
             .addItem("Checklist / To-Do", subtitle = "Interactive checklist items", iconRes = R.drawable.ic_tool_elements) {
                 canvas.addBox(BoxKind.CHECKLIST)
             }
-            .addItem("Sticky Note", subtitle = "Square brainstorming memo") {
+            .addItem("Sticky Note", subtitle = "Square memo shape") {
                 canvas.addBox(BoxKind.SHAPE, ShapeType.STICKY_NOTE)
             }
-            .addItem("Photo / Image", subtitle = "Import picture from gallery") {
-                pickImage.launch("image/*")
+            .addItem("Table Grid", subtitle = "Editable rows, columns & indices") {
+                showTableConfigDialog()
+            }
+            .addItem("Geometric Shapes", subtitle = "Circles, diamonds, stars & clouds") {
+                showShapesChooser()
             }
             .addItem("Nested Sub-Board", subtitle = "Drill-down board within this canvas") {
                 showCreateBoardDialog(asSubBoard = true)
             }
             .addItem("Web Bookmark Link", subtitle = "Interactive web link card") {
                 canvas.addBox(BoxKind.LINK)
+            }
+            .setNegativeButton("Cancel")
+            .show()
+    }
+
+    private fun showTableConfigDialog() {
+        var selectedRows = 3
+        var selectedCols = 3
+        var selectedRowStyle = TableIndexStyle.NUMBERS
+        var selectedColStyle = TableIndexStyle.LETTERS
+
+        val density = resources.displayMetrics.density
+        val colors = canvas.themeColors
+
+        val dialogView = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding((16 * density).toInt(), (8 * density).toInt(), (16 * density).toInt(), (8 * density).toInt())
+        }
+
+        val rowPillValues = listOf(2, 3, 4, 5, 6, 8, 10, 12, 16, 20)
+        val colPillValues = listOf(2, 3, 4, 5, 6, 8, 10, 12, 16, 20)
+
+        // Row count selector
+        val rowLabel = TextView(this).apply {
+            text = "Rows: $selectedRows"
+            setTextColor(colors.topBarText)
+            textSize = 13f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, 0, 0, (4 * density).toInt())
+        }
+        val rowPills = mutableListOf<TextView>()
+        val rowControlsLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        }
+        lateinit var tvRowCount: TextView
+        fun updateRowUI() {
+            rowLabel.text = "Rows: $selectedRows"
+            tvRowCount.text = "$selectedRows"
+            rowPills.forEachIndexed { idx, pill ->
+                val pillR = rowPillValues[idx]
+                (pill.background as? GradientDrawable)?.setColor(if (pillR == selectedRows) colors.accent else Color.argb(30, 150, 150, 150))
+                pill.setTextColor(if (pillR == selectedRows) Color.WHITE else colors.topBarText)
+            }
+        }
+        val btnRowMinus = Button(this).apply {
+            text = "–"
+            textSize = 16f
+            layoutParams = LinearLayout.LayoutParams((38 * density).toInt(), (34 * density).toInt())
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 8 * density
+                setColor(Color.argb(30, 150, 150, 150))
+            }
+            setTextColor(colors.topBarText)
+            setOnClickListener {
+                if (selectedRows > 1) {
+                    selectedRows--
+                    updateRowUI()
+                }
+            }
+        }
+        tvRowCount = TextView(this).apply {
+            text = "$selectedRows"
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(colors.topBarText)
+            layoutParams = LinearLayout.LayoutParams((38 * density).toInt(), (34 * density).toInt())
+        }
+        val btnRowPlus = Button(this).apply {
+            text = "+"
+            textSize = 16f
+            layoutParams = LinearLayout.LayoutParams((38 * density).toInt(), (34 * density).toInt())
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 8 * density
+                setColor(Color.argb(30, 150, 150, 150))
+            }
+            setTextColor(colors.topBarText)
+            setOnClickListener {
+                if (selectedRows < 50) {
+                    selectedRows++
+                    updateRowUI()
+                }
+            }
+        }
+        val rowScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                marginStart = (6 * density).toInt()
+            }
+        }
+        val rowPillLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        for (r in rowPillValues) {
+            val tv = TextView(this).apply {
+                text = "$r"
+                textSize = 12f
+                gravity = Gravity.CENTER
+                val lp = LinearLayout.LayoutParams((36 * density).toInt(), (32 * density).toInt()).apply {
+                    setMargins((2 * density).toInt(), 0, (2 * density).toInt(), 0)
+                }
+                layoutParams = lp
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = 8 * density
+                    setColor(if (r == selectedRows) colors.accent else Color.argb(30, 150, 150, 150))
+                }
+                setTextColor(if (r == selectedRows) Color.WHITE else colors.topBarText)
+                setOnClickListener {
+                    selectedRows = r
+                    updateRowUI()
+                }
+            }
+            rowPills.add(tv)
+            rowPillLayout.addView(tv)
+        }
+        rowScroll.addView(rowPillLayout)
+        rowControlsLayout.addView(btnRowMinus)
+        rowControlsLayout.addView(tvRowCount)
+        rowControlsLayout.addView(btnRowPlus)
+        rowControlsLayout.addView(rowScroll)
+
+        // Col count selector
+        val colLabel = TextView(this).apply {
+            text = "Columns: $selectedCols"
+            setTextColor(colors.topBarText)
+            textSize = 13f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, (10 * density).toInt(), 0, (4 * density).toInt())
+        }
+        val colPills = mutableListOf<TextView>()
+        val colControlsLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        }
+        lateinit var tvColCount: TextView
+        fun updateColUI() {
+            colLabel.text = "Columns: $selectedCols"
+            tvColCount.text = "$selectedCols"
+            colPills.forEachIndexed { idx, pill ->
+                val pillC = colPillValues[idx]
+                (pill.background as? GradientDrawable)?.setColor(if (pillC == selectedCols) colors.accent else Color.argb(30, 150, 150, 150))
+                pill.setTextColor(if (pillC == selectedCols) Color.WHITE else colors.topBarText)
+            }
+        }
+        val btnColMinus = Button(this).apply {
+            text = "–"
+            textSize = 16f
+            layoutParams = LinearLayout.LayoutParams((38 * density).toInt(), (34 * density).toInt())
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 8 * density
+                setColor(Color.argb(30, 150, 150, 150))
+            }
+            setTextColor(colors.topBarText)
+            setOnClickListener {
+                if (selectedCols > 1) {
+                    selectedCols--
+                    updateColUI()
+                }
+            }
+        }
+        tvColCount = TextView(this).apply {
+            text = "$selectedCols"
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(colors.topBarText)
+            layoutParams = LinearLayout.LayoutParams((38 * density).toInt(), (34 * density).toInt())
+        }
+        val btnColPlus = Button(this).apply {
+            text = "+"
+            textSize = 16f
+            layoutParams = LinearLayout.LayoutParams((38 * density).toInt(), (34 * density).toInt())
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 8 * density
+                setColor(Color.argb(30, 150, 150, 150))
+            }
+            setTextColor(colors.topBarText)
+            setOnClickListener {
+                if (selectedCols < 50) {
+                    selectedCols++
+                    updateColUI()
+                }
+            }
+        }
+        val colScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                marginStart = (6 * density).toInt()
+            }
+        }
+        val colPillLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        for (c in colPillValues) {
+            val tv = TextView(this).apply {
+                text = "$c"
+                textSize = 12f
+                gravity = Gravity.CENTER
+                val lp = LinearLayout.LayoutParams((36 * density).toInt(), (32 * density).toInt()).apply {
+                    setMargins((2 * density).toInt(), 0, (2 * density).toInt(), 0)
+                }
+                layoutParams = lp
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = 8 * density
+                    setColor(if (c == selectedCols) colors.accent else Color.argb(30, 150, 150, 150))
+                }
+                setTextColor(if (c == selectedCols) Color.WHITE else colors.topBarText)
+                setOnClickListener {
+                    selectedCols = c
+                    updateColUI()
+                }
+            }
+            colPills.add(tv)
+            colPillLayout.addView(tv)
+        }
+        colScroll.addView(colPillLayout)
+        colControlsLayout.addView(btnColMinus)
+        colControlsLayout.addView(tvColCount)
+        colControlsLayout.addView(btnColPlus)
+        colControlsLayout.addView(colScroll)
+
+        // Headers index style selector
+        val indexLabel = TextView(this).apply {
+            text = "Headers Style"
+            setTextColor(colors.topBarText)
+            textSize = 13f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, (12 * density).toInt(), 0, (4 * density).toInt())
+        }
+        val indexOptions = listOf(
+            "Letters & Numbers (A-C, 1-3)" to (TableIndexStyle.LETTERS to TableIndexStyle.NUMBERS),
+            "Numbers (1-3, 1-3)" to (TableIndexStyle.NUMBERS to TableIndexStyle.NUMBERS),
+            "Roman Numerals (I-III)" to (TableIndexStyle.ROMAN to TableIndexStyle.ROMAN),
+            "Plain (No indices)" to (TableIndexStyle.NONE to TableIndexStyle.NONE)
+        )
+        var selectedIndexIdx = 0
+        val indexPills = mutableListOf<TextView>()
+        val indexLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        indexOptions.forEachIndexed { idx, (label, styles) ->
+            val tv = TextView(this).apply {
+                text = label
+                textSize = 12f
+                val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (34 * density).toInt()).apply {
+                    setMargins(0, (2 * density).toInt(), 0, (2 * density).toInt())
+                }
+                layoutParams = lp
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding((12 * density).toInt(), 0, (12 * density).toInt(), 0)
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = 8 * density
+                    setColor(if (idx == selectedIndexIdx) colors.accent else Color.argb(20, 150, 150, 150))
+                }
+                setTextColor(if (idx == selectedIndexIdx) Color.WHITE else colors.topBarText)
+                setOnClickListener {
+                    selectedIndexIdx = idx
+                    selectedColStyle = styles.first
+                    selectedRowStyle = styles.second
+                    indexPills.forEachIndexed { pIdx, pill ->
+                        (pill.background as? GradientDrawable)?.setColor(if (pIdx == selectedIndexIdx) colors.accent else Color.argb(20, 150, 150, 150))
+                        pill.setTextColor(if (pIdx == selectedIndexIdx) Color.WHITE else colors.topBarText)
+                    }
+                }
+            }
+            indexPills.add(tv)
+            indexLayout.addView(tv)
+        }
+
+        dialogView.addView(rowLabel)
+        dialogView.addView(rowControlsLayout)
+        dialogView.addView(colLabel)
+        dialogView.addView(colControlsLayout)
+        dialogView.addView(indexLabel)
+        dialogView.addView(indexLayout)
+
+        ThemedDialog.Builder(this, colors)
+            .setTitle("Create Table Grid")
+            .setCustomView(dialogView)
+            .setPositiveButton("Insert Table") {
+                val tableData = TableData(
+                    rows = selectedRows,
+                    cols = selectedCols,
+                    rowHeaders = selectedRowStyle,
+                    colHeaders = selectedColStyle,
+                    cells = MutableList(selectedRows) { MutableList(selectedCols) { "" } }
+                )
+                canvas.addBox(kind = BoxKind.TABLE, tableData = tableData)
             }
             .setNegativeButton("Cancel")
             .show()
@@ -1494,6 +1914,11 @@ class MainActivity : AppCompatActivity() {
             .addItem("Canvas Grid", subtitle = appSettings.gridStyle.displayName) {
                 showGridStylePickerDialog()
             }
+            .addItem("Grid Snapping: ${if (canvas.gridSnap) "ON" else "OFF"}", subtitle = if (canvas.gridSnap) "Cards magnetically snap to 32dp dot grid" else "Freeform smooth card placement") {
+                appSettings.gridSnap = !appSettings.gridSnap
+                canvas.gridSnap = appSettings.gridSnap
+                Toast.makeText(this, "Grid Snapping: ${if (canvas.gridSnap) "ON" else "OFF"}", Toast.LENGTH_SHORT).show()
+            }
             .addItem("Switch Board", subtitle = "Browse or jump to another board") {
                 showBoardSwitcherDialog()
             }
@@ -1514,33 +1939,52 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    // ==================== EXPORT & DOWNLOAD ====================
+    // ==================== EXPORT: DOWNLOAD (SAF FILE PICKER) & SHARE ====================
 
-    private fun showExportDialog() {
+    private fun showDownloadDialog() {
         if (canvas.boxCount() == 0 && canvas.bgDrawingOverlay.getAllStrokes().isEmpty() && canvas.fgDrawingOverlay.getAllStrokes().isEmpty()) {
-            Toast.makeText(this, "Add notes or sketches before exporting", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Add notes or sketches before downloading", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val boardName = boardManager.getActiveMeta().name.replace(Regex("[^a-zA-Z0-9_]"), "_").ifBlank { "board" }
+
+        ThemedDialog.Builder(this, canvas.themeColors)
+            .setTitle("Download Board (Save to Device)")
+            .setMessage("Choose format to pick destination folder and filename:")
+            .addItem("Vector PDF (.pdf)", subtitle = "Vector document with custom file name & directory", iconRes = R.drawable.ic_download) {
+                pendingDownloadType = "pdf"
+                createDocumentLauncher.launch("${boardName}_export.pdf")
+            }
+            .addItem("High-Resolution Image (.png)", subtitle = "Lossless raster image with custom save path", iconRes = R.drawable.ic_download) {
+                pendingDownloadType = "png"
+                createDocumentLauncher.launch("${boardName}_export.png")
+            }
+            .addItem("Project Archive (.noteapp)", subtitle = "Portable project file for backup or sharing", iconRes = R.drawable.ic_download) {
+                pendingDownloadType = "project"
+                createDocumentLauncher.launch("${boardName}.noteapp")
+            }
+            .setNegativeButton("Cancel")
+            .show()
+    }
+
+    private fun showShareDialog() {
+        if (canvas.boxCount() == 0 && canvas.bgDrawingOverlay.getAllStrokes().isEmpty() && canvas.fgDrawingOverlay.getAllStrokes().isEmpty()) {
+            Toast.makeText(this, "Add notes or sketches before sharing", Toast.LENGTH_SHORT).show()
             return
         }
 
         ThemedDialog.Builder(this, canvas.themeColors)
-            .setTitle("Export Board (Vector Quality)")
-            .addItem("Download PDF to Device", subtitle = "Direct save vector PDF to Documents") {
-                currentFocus?.clearFocus()
-                canvas.post { performDirectDownload(asPdf = true) }
-            }
-            .addItem("Share PDF", subtitle = "Share vector document via system sheet") {
+            .setTitle("Share Board")
+            .addItem("Share as Vector PDF", subtitle = "Send vector document via system share sheet", iconRes = R.drawable.ic_share) {
                 currentFocus?.clearFocus()
                 canvas.post { performShare(asPdf = true) }
             }
-            .addItem("Download High-Res PNG to Device", subtitle = "Save lossless raster image") {
-                currentFocus?.clearFocus()
-                canvas.post { performDirectDownload(asPdf = false) }
-            }
-            .addItem("Share High-Res PNG", subtitle = "Share image via system sheet") {
+            .addItem("Share as High-Res PNG", subtitle = "Send rendered image to other apps", iconRes = R.drawable.ic_share) {
                 currentFocus?.clearFocus()
                 canvas.post { performShare(asPdf = false) }
             }
-            .addItem("Export Project Archive (.noteapp)", subtitle = "Portable project file with full canvas state") {
+            .addItem("Share Project File (.noteapp)", subtitle = "Send project file to import on another device", iconRes = R.drawable.ic_share) {
                 currentFocus?.clearFocus()
                 canvas.post { performProjectExport() }
             }
@@ -1548,17 +1992,37 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun performDirectDownload(asPdf: Boolean) {
-        val bitmap = getRenderedBitmap() ?: return
-        val file = if (asPdf) {
-            ExportManager.downloadPdfToDevice(this, bitmap)
-        } else {
-            ExportManager.downloadPngToDevice(this, bitmap)
-        }
-        if (file != null) {
-            Toast.makeText(this, "Saved to: ${file.name}", Toast.LENGTH_LONG).show()
-        } else {
-            Toast.makeText(this, "Failed to save file", Toast.LENGTH_SHORT).show()
+    private fun saveFileToSafUri(uri: Uri, type: String) {
+        try {
+            val out = contentResolver.openOutputStream(uri)
+            if (out == null) {
+                Toast.makeText(this, "Could not open selected destination for writing", Toast.LENGTH_SHORT).show()
+                return
+            }
+            when (type) {
+                "pdf" -> {
+                    val bitmap = getRenderedBitmap() ?: return
+                    val ok = ExportManager.writePdfToStream(bitmap, out)
+                    if (ok) Toast.makeText(this, "PDF saved successfully!", Toast.LENGTH_LONG).show()
+                    else Toast.makeText(this, "Failed to write PDF", Toast.LENGTH_SHORT).show()
+                }
+                "png" -> {
+                    val bitmap = getRenderedBitmap() ?: return
+                    val ok = ExportManager.writePngToStream(bitmap, out)
+                    if (ok) Toast.makeText(this, "PNG image saved successfully!", Toast.LENGTH_LONG).show()
+                    else Toast.makeText(this, "Failed to write PNG", Toast.LENGTH_SHORT).show()
+                }
+                "project" -> {
+                    val currentMeta = boardManager.getActiveMeta()
+                    val boardData = canvas.exportBoardData(currentMeta)
+                    val ok = ExportManager.writeProjectToStream(boardData, out)
+                    if (ok) Toast.makeText(this, "Project archive saved successfully!", Toast.LENGTH_LONG).show()
+                    else Toast.makeText(this, "Failed to write project", Toast.LENGTH_SHORT).show()
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(this, "Error saving: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1577,7 +2041,7 @@ class MainActivity : AppCompatActivity() {
         val boardData = canvas.exportBoardData(currentMeta)
         val exported = ExportManager.exportProjectFile(this, boardData)
         if (exported != null) {
-            Toast.makeText(this, "Project archive saved: ${exported.first.name}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Project archive created: ${exported.first.name}", Toast.LENGTH_SHORT).show()
             ExportManager.shareUri(this, exported.second, "application/json")
         } else {
             Toast.makeText(this, "Failed to export project", Toast.LENGTH_SHORT).show()

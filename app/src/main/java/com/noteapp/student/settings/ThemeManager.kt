@@ -11,7 +11,8 @@ data class ThemeColors(
     val cardDefaultBg: Int,
     val cardBorder: Int,
     val dockBg: Int,
-    val isDark: Boolean
+    val isDark: Boolean,
+    val defaultTextColor: Int = Color.parseColor("#0F172A")
 ) {
     companion object {
         fun modernClean(): ThemeColors = ThemeManager.getThemeColors(ThemeType.MODERN_CLEAN)
@@ -31,7 +32,8 @@ object ThemeManager {
                 cardDefaultBg = Color.WHITE,
                 cardBorder = Color.parseColor("#C7C9F2"),
                 dockBg = Color.parseColor("#0F172A"),
-                isDark = false
+                isDark = false,
+                defaultTextColor = Color.parseColor("#0F172A")
             )
             ThemeType.MILANOTE_DARK -> ThemeColors(
                 canvasBg = Color.parseColor("#0F172A"),
@@ -42,7 +44,8 @@ object ThemeManager {
                 cardDefaultBg = Color.parseColor("#1E293B"),
                 cardBorder = Color.parseColor("#475569"),
                 dockBg = Color.parseColor("#1E293B"),
-                isDark = true
+                isDark = true,
+                defaultTextColor = Color.parseColor("#F8FAFC")
             )
             ThemeType.WARM_PARCHMENT -> ThemeColors(
                 canvasBg = Color.parseColor("#FDF6E2"),
@@ -53,7 +56,8 @@ object ThemeManager {
                 cardDefaultBg = Color.parseColor("#FEF3C7"),
                 cardBorder = Color.parseColor("#E5D5B8"),
                 dockBg = Color.parseColor("#78350F"),
-                isDark = false
+                isDark = false,
+                defaultTextColor = Color.parseColor("#451A03")
             )
             ThemeType.CYBERPUNK_NEON -> ThemeColors(
                 canvasBg = Color.parseColor("#090D16"),
@@ -64,7 +68,8 @@ object ThemeManager {
                 cardDefaultBg = Color.parseColor("#111827"),
                 cardBorder = Color.parseColor("#06B6D4"),
                 dockBg = Color.parseColor("#0F172A"),
-                isDark = true
+                isDark = true,
+                defaultTextColor = Color.parseColor("#F1F5F9")
             )
             ThemeType.SOLARIZED_MINT -> ThemeColors(
                 canvasBg = Color.parseColor("#E8F5E9"),
@@ -72,10 +77,11 @@ object ThemeManager {
                 topBarBg = Color.parseColor("#F1F8F5"),
                 topBarText = Color.parseColor("#064E3B"),
                 accent = Color.parseColor("#059669"),
-                cardDefaultBg = Color.parseColor("#FFFFFF"),
+                cardDefaultBg = Color.WHITE,
                 cardBorder = Color.parseColor("#A5D6A7"),
                 dockBg = Color.parseColor("#064E3B"),
-                isDark = false
+                isDark = false,
+                defaultTextColor = Color.parseColor("#064E3B")
             )
         }
     }

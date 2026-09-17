@@ -32,7 +32,6 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
         const val HANDLE_BOTTOM_LEFT = 6
         const val HANDLE_LEFT_CENTER = 7
         const val HANDLE_HEADING = 8
-        const val HANDLE_MENU = 9
         const val HANDLE_NONE = -1
 
         const val MIN_WIDTH = 140f
@@ -76,13 +75,6 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
         setShadowLayer(4f, 0f, 2f, Color.parseColor("#40000000"))
     }
 
-    private val menuPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#2563EB")
-        textSize = 36f
-        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        setShadowLayer(4f, 0f, 2f, Color.parseColor("#40000000"))
-    }
-
     // Touch interaction state
     private var activeHandle = HANDLE_NONE
     private var isInteracting = false
@@ -95,7 +87,6 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
 
     // Bounds cache
     private val headingRect = RectF()
-    private val menuRect = RectF()
     private val handleCenters = Array(8) { FloatArray(2) }
 
     fun updateTheme(textColor: Int) {
@@ -140,12 +131,12 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
         val headingText = getHeadingTitle(box)
         val textWidth = headingPaint.measureText(headingText)
 
-        val headingHeight = 36f
-        val headingBottom = t - 10f
+        val headingWidth = max(box.data.width, textWidth + 32f)
+        val headingHeight = 44f
+        val headingBottom = t - 8f
         val headingTop = headingBottom - headingHeight
 
-        headingRect.set(l, headingTop, l + textWidth + 16f, headingBottom)
-        menuRect.set(l + textWidth + 18f, headingTop, l + textWidth + 60f, headingBottom)
+        headingRect.set(l, headingTop, l + headingWidth, headingBottom)
     }
 
     private fun getHeadingTitle(box: NoteBoxView): String {
@@ -153,6 +144,7 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
             BoxKind.TEXT -> "Note"
             BoxKind.IMAGE -> "Image"
             BoxKind.CHECKLIST -> "Checklist"
+            BoxKind.TABLE -> "Table"
             BoxKind.SHAPE -> when (box.data.shapeType) {
                 ShapeType.STICKY_NOTE -> "Sticky Note"
                 ShapeType.DIAMOND -> "Diamond"
@@ -191,12 +183,9 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
             canvas.drawRect(hx - handleHalfSize, hy - handleHalfSize, hx + handleHalfSize, hy + handleHalfSize, handleStrokePaint)
         }
 
-        // 3. Heading Text floating ABOVE (outside) the box (NO solid background color)
+        // 3. Heading Text floating ABOVE (outside) the box (NO solid background color, pure clean text)
         val headingText = getHeadingTitle(box)
-        canvas.drawText(headingText, headingRect.left + 4f, headingRect.bottom - 6f, headingPaint)
-
-        // 4. 3-dots menu button next to heading
-        canvas.drawText("\u22EE", menuRect.left + 4f, menuRect.bottom - 4f, menuPaint)
+        canvas.drawText(headingText, headingRect.left + 4f, headingRect.bottom - 8f, headingPaint)
     }
 
     private fun hitTest(x: Float, y: Float): Int {
@@ -204,12 +193,7 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
         if (!box.isBoxSelected()) return HANDLE_NONE
         updateGeometry(box)
 
-        // 1. Menu button hit test
-        if (menuRect.contains(x, y)) {
-            return HANDLE_MENU
-        }
-
-        // 2. 8 handles hit test (touch target radius 28px)
+        // 1. 8 handles hit test (touch target radius 28px)
         val touchRadius = 28f
         for (i in 0..7) {
             val hx = handleCenters[i][0]
@@ -219,8 +203,13 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
             }
         }
 
-        // 3. Heading drag hit test (generous touch padding above the box)
-        val headingHit = RectF(headingRect.left - 12f, headingRect.top - 12f, headingRect.right + 12f, headingRect.bottom + 12f)
+        // 2. Heading drag hit test (generous touch padding above the box spanning full width)
+        val headingHit = RectF(
+            headingRect.left - 24f,
+            headingRect.top - 24f,
+            headingRect.right + 24f,
+            box.data.y + 12f
+        )
         if (headingHit.contains(x, y)) {
             return HANDLE_HEADING
         }
@@ -236,21 +225,27 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
             MotionEvent.ACTION_DOWN -> {
                 val handle = hitTest(event.x, event.y)
                 if (handle == HANDLE_NONE) {
-                    // Check if touch is inside the box itself -> return false so box content receives touch
                     val l = box.data.x
                     val t = box.data.y
                     val r = box.data.x + box.data.width
                     val b = box.data.y + box.data.height
+
+                    // If touch is inside the box:
                     if (event.x in l..r && event.y in t..b) {
+                        // For non-text content (Images, Boards, Links), direct touch drags to move the box!
+                        if (box.data.kind == BoxKind.IMAGE || box.data.kind == BoxKind.BOARD || box.data.kind == BoxKind.LINK) {
+                            activeHandle = HANDLE_HEADING
+                            isInteracting = true
+                            lastTouchX = event.x
+                            lastTouchY = event.y
+                            initialX = box.data.x
+                            initialY = box.data.y
+                            parent?.requestDisallowInterceptTouchEvent(true)
+                            return true
+                        }
                         return false
                     }
-                    // Outside box and outside handles -> return false so canvas handles deselect / pan
                     return false
-                }
-
-                if (handle == HANDLE_MENU) {
-                    onMenuRequested?.invoke(box)
-                    return true
                 }
 
                 activeHandle = handle

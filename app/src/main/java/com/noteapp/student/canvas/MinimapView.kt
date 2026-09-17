@@ -8,6 +8,7 @@ import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
+import com.noteapp.student.settings.ThemeColors
 import kotlin.math.max
 import kotlin.math.min
 
@@ -16,6 +17,7 @@ import kotlin.math.min
  * - Visualizes the positions of all cards with distinct color coding per element kind
  * - Highlights the active screen viewport rectangle
  * - Touching or dragging anywhere on the minimap teleports the camera directly to that area
+ * - 100% theme adaptive
  */
 class MinimapView @JvmOverloads constructor(
     context: Context,
@@ -26,9 +28,10 @@ class MinimapView @JvmOverloads constructor(
     var boxesProvider: (() -> List<NoteBoxView>)? = null
     var viewportProvider: (() -> RectF)? = null
     var onTeleport: ((worldX: Float, worldY: Float) -> Unit)? = null
+    var themeColors: ThemeColors? = null
 
     private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#E60F172A") // Deep translucent slate glass
+        color = Color.parseColor("#E60F172A") // Translucent slate glass
         style = Paint.Style.FILL
     }
     private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -47,6 +50,24 @@ class MinimapView @JvmOverloads constructor(
         color = Color.parseColor("#38BDF8") // Vibrant cyan viewfinder
         style = Paint.Style.STROKE
         strokeWidth = 3f
+    }
+
+    fun applyTheme(colors: ThemeColors) {
+        themeColors = colors
+        val isDark = colors.isDark
+        if (isDark) {
+            bgPaint.color = Color.argb(235, 15, 23, 42)
+            borderPaint.color = colors.cardBorder
+        } else {
+            bgPaint.color = Color.argb(235, 248, 250, 252)
+            borderPaint.color = colors.cardBorder
+        }
+        val r = Color.red(colors.accent)
+        val g = Color.green(colors.accent)
+        val b = Color.blue(colors.accent)
+        viewportFillPaint.color = Color.argb(45, r, g, b)
+        viewportStrokePaint.color = colors.accent
+        invalidate()
     }
 
     private val boundsRect = RectF()
@@ -125,12 +146,13 @@ class MinimapView @JvmOverloads constructor(
             val ch = max(4f, d.height * mapScale)
 
             cardPaint.color = when (d.kind) {
-                BoxKind.TEXT -> Color.parseColor("#6366F1") // Indigo
+                BoxKind.TEXT -> themeColors?.accent ?: Color.parseColor("#6366F1")
                 BoxKind.IMAGE -> Color.parseColor("#10B981") // Green
                 BoxKind.CHECKLIST -> Color.parseColor("#06B6D4") // Cyan
+                BoxKind.TABLE -> Color.parseColor("#3B82F6") // Blue Table
                 BoxKind.SHAPE -> Color.parseColor("#F59E0B") // Amber
                 BoxKind.BOARD -> Color.parseColor("#A855F7") // Purple
-                BoxKind.LINK -> Color.parseColor("#3B82F6") // Blue
+                BoxKind.LINK -> Color.parseColor("#2563EB") // Blue
             }
 
             tempCardRect.set(cx, cy, cx + cw, cy + ch)

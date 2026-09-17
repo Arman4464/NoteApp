@@ -18,26 +18,41 @@ object AppIconManager {
         ThemeType.SOLARIZED_MINT to "com.noteapp.student.MainActivityMint"
     )
 
+    private var pendingTheme: ThemeType? = null
+
     fun applyAppIcon(context: Context, theme: ThemeType) {
         val pm = context.packageManager
         val targetAlias = THEME_ALIASES[theme] ?: return
+        pendingTheme = theme
 
         try {
-            // 1. Enable the desired theme's launcher icon alias
+            // Enable the desired theme's launcher icon alias immediately
             pm.setComponentEnabledSetting(
                 ComponentName(context, targetAlias),
                 PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
                 PackageManager.DONT_KILL_APP
             )
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
 
-            // 2. Disable all other theme launcher aliases to avoid duplicates
+    fun flushDisabledAliases(context: Context) {
+        val currentTheme = pendingTheme ?: AppSettings(context).theme
+        val pm = context.packageManager
+
+        try {
             for ((t, alias) in THEME_ALIASES) {
-                if (t != theme) {
-                    pm.setComponentEnabledSetting(
-                        ComponentName(context, alias),
-                        PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-                        PackageManager.DONT_KILL_APP
-                    )
+                if (t != currentTheme) {
+                    val comp = ComponentName(context, alias)
+                    val state = pm.getComponentEnabledSetting(comp)
+                    if (state != PackageManager.COMPONENT_ENABLED_STATE_DISABLED) {
+                        pm.setComponentEnabledSetting(
+                            comp,
+                            PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                            PackageManager.DONT_KILL_APP
+                        )
+                    }
                 }
             }
         } catch (e: Exception) {

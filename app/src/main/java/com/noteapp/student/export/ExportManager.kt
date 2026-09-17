@@ -346,6 +346,47 @@ object ExportManager {
         return Pair(file, uri)
     }
 
+    fun writePdfToStream(bitmap: Bitmap, outputStream: java.io.OutputStream): Boolean {
+        return try {
+            val document = PdfDocument()
+            val pageInfo = PdfDocument.PageInfo.Builder(bitmap.width, bitmap.height, 1).create()
+            val page = document.startPage(pageInfo)
+            page.canvas.drawBitmap(bitmap, 0f, 0f, null)
+            document.finishPage(page)
+            outputStream.use { out -> document.writeTo(out) }
+            document.close()
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    fun writePngToStream(bitmap: Bitmap, outputStream: java.io.OutputStream): Boolean {
+        return try {
+            outputStream.use { out ->
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+            }
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    fun writeProjectToStream(board: BoardData, outputStream: java.io.OutputStream): Boolean {
+        return try {
+            val json = CanvasSerializer.serializeBoard(board)
+            outputStream.use { out ->
+                out.write(json.toByteArray(Charsets.UTF_8))
+            }
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
     fun importProjectFile(context: Context, uri: Uri): BoardData? {
         return try {
             val json = context.contentResolver.openInputStream(uri)?.use { stream ->

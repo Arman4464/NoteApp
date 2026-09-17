@@ -17,6 +17,7 @@ import android.view.ViewGroup
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -26,6 +27,7 @@ import com.noteapp.student.R
 import com.noteapp.student.settings.ThemeColors
 import com.noteapp.student.util.ColorPicker
 import com.noteapp.student.util.ThemedDialog
+import kotlin.math.hypot
 import kotlin.math.max
 
 /**
@@ -33,6 +35,7 @@ import kotlin.math.max
  * - TEXT: Note card with rich typography
  * - IMAGE: Photo or imported picture
  * - CHECKLIST: Interactive task list with strikethroughs
+ * - TABLE: Interactive table grid with customizable indexing
  * - SHAPE: Sticky note, rounded container, or circle
  * - BOARD: Milanote-style sub-board container card
  * - LINK: Web bookmark card
@@ -59,9 +62,16 @@ class NoteBoxView(
 
     private val contentContainer: View
     private lateinit var checklistContainer: LinearLayout
+    private lateinit var tableContainer: LinearLayout
 
     private var isSelectedState = false
     private var savedHint: CharSequence? = null
+
+    // Touch drag state when card is selected
+    private var touchStartX = 0f
+    private var touchStartY = 0f
+    private var isDraggingSelf = false
+
     var themeColors: ThemeColors? = null
         set(value) {
             field = value
@@ -73,6 +83,8 @@ class NoteBoxView(
                 }
             } else if (data.kind == BoxKind.CHECKLIST) {
                 rebuildChecklist()
+            } else if (data.kind == BoxKind.TABLE) {
+                rebuildTable()
             }
         }
 
@@ -86,6 +98,7 @@ class NoteBoxView(
             BoxKind.TEXT -> buildTextContent()
             BoxKind.IMAGE -> buildImageContent()
             BoxKind.CHECKLIST -> buildChecklistContent()
+            BoxKind.TABLE -> buildTableContent()
             BoxKind.SHAPE -> buildShapeContent()
             BoxKind.BOARD -> buildBoardContent()
             BoxKind.LINK -> buildLinkContent()
@@ -102,11 +115,77 @@ class NoteBoxView(
         }
     }
 
+    override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
+        if (isSelectedState) {
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    touchStartX = ev.rawX
+                    touchStartY = ev.rawY
+                    isDraggingSelf = false
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = Math.abs(ev.rawX - touchStartX)
+                    val dy = Math.abs(ev.rawY - touchStartY)
+                    val density = resources.displayMetrics.density
+                    if (hypot(dx.toDouble(), dy.toDouble()) > 14 * density) {
+                        val focused = findFocus()
+                        val isInsideFocused = if (focused is EditText) {
+                            val loc = IntArray(2)
+                            focused.getLocationOnScreen(loc)
+                            ev.rawX >= loc[0] && ev.rawX <= loc[0] + focused.width &&
+                            ev.rawY >= loc[1] && ev.rawY <= loc[1] + focused.height
+                        } else false
+
+                        if (!isInsideFocused) {
+                            isDraggingSelf = true
+                            parent?.requestDisallowInterceptTouchEvent(true)
+                            return true
+                        }
+                    }
+                }
+            }
+        }
+        return super.onInterceptTouchEvent(ev)
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (isSelectedState) {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    touchStartX = event.rawX
+                    touchStartY = event.rawY
+                    isDraggingSelf = true
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                    return true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (isDraggingSelf) {
+                        val dx = (event.rawX - touchStartX) / getScale()
+                        val dy = (event.rawY - touchStartY) / getScale()
+                        touchStartX = event.rawX
+                        touchStartY = event.rawY
+                        onMoved(dx, dy)
+                        return true
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (isDraggingSelf) {
+                        isDraggingSelf = false
+                        onMoveFinished()
+                        parent?.requestDisallowInterceptTouchEvent(false)
+                        return true
+                    }
+                }
+            }
+        }
+        return super.onTouchEvent(event)
+    }
+
     fun resolveTextColor(): Int {
-        if (data.textColor != Color.parseColor("#111827")) {
+        if (data.textColor != Color.parseColor("#111827") && data.textColor != 0) {
             return data.textColor
         }
-        return if (themeColors?.isDark == true) Color.parseColor("#F8FAFC") else Color.parseColor("#0F172A")
+        return themeColors?.defaultTextColor ?: if (themeColors?.isDark == true) Color.parseColor("#F8FAFC") else Color.parseColor("#0F172A")
     }
 
     private fun getHeaderColor(): Int {
@@ -114,6 +193,7 @@ class NoteBoxView(
             BoxKind.TEXT -> Color.parseColor("#4F46E5")
             BoxKind.IMAGE -> Color.parseColor("#059669")
             BoxKind.CHECKLIST -> Color.parseColor("#0284C7")
+            BoxKind.TABLE -> Color.parseColor("#3B82F6")
             BoxKind.SHAPE -> Color.parseColor("#D97706")
             BoxKind.BOARD -> Color.parseColor("#7C3AED")
             BoxKind.LINK -> Color.parseColor("#2563EB")
@@ -121,7 +201,7 @@ class NoteBoxView(
     }
 
     fun updateBackgroundShape() {
-        val isGlass = (data.kind == BoxKind.TEXT || data.kind == BoxKind.CHECKLIST)
+        val isGlass = (data.kind == BoxKind.TEXT || data.kind == BoxKind.CHECKLIST || data.kind == BoxKind.TABLE)
         val density = context.resources.displayMetrics.density
         val isDark = themeColors?.isDark ?: false
 
@@ -232,6 +312,9 @@ class NoteBoxView(
             }
         })
         et.setOnFocusChangeListener { _, _ -> onTextFocusChanged() }
+        et.setOnClickListener {
+            focusTextInput()
+        }
         et.setOnTouchListener { _, event ->
             if (!isSelectedState && event.actionMasked == MotionEvent.ACTION_UP) {
                 onBoxTapped(this@NoteBoxView)
@@ -243,7 +326,8 @@ class NoteBoxView(
 
     private fun buildImageContent(): ImageView {
         return ImageView(context).apply {
-            scaleType = ImageView.ScaleType.CENTER_CROP
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            adjustViewBounds = true
             val path = data.imagePath
             if (path != null) {
                 val bmp = BitmapFactory.decodeFile(path)
@@ -262,8 +346,270 @@ class NoteBoxView(
             setPadding(16, 16, 16, 32)
         }
         scroll.addView(checklistContainer)
+        scroll.setOnTouchListener { _, event ->
+            if (!isSelectedState && event.actionMasked == MotionEvent.ACTION_UP) {
+                onBoxTapped(this@NoteBoxView)
+            }
+            false
+        }
         rebuildChecklist()
         return scroll
+    }
+
+    private fun buildTableContent(): View {
+        val vScroll = ScrollView(context).apply {
+            clipToPadding = false
+            setPadding(0, 0, 0, 16)
+        }
+        val hScroll = HorizontalScrollView(context).apply {
+            clipToPadding = false
+            setPadding(0, 0, 0, 0)
+        }
+        tableContainer = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(12, 12, 12, 24)
+        }
+        hScroll.addView(tableContainer)
+        vScroll.addView(hScroll)
+
+        vScroll.setOnTouchListener { _, event ->
+            if (!isSelectedState && event.actionMasked == MotionEvent.ACTION_UP) {
+                onBoxTapped(this@NoteBoxView)
+            }
+            false
+        }
+        hScroll.setOnTouchListener { _, event ->
+            if (!isSelectedState && event.actionMasked == MotionEvent.ACTION_UP) {
+                onBoxTapped(this@NoteBoxView)
+            }
+            false
+        }
+
+        rebuildTable()
+        return vScroll
+    }
+
+    private fun rebuildTable() {
+        if (!::tableContainer.isInitialized) return
+        tableContainer.removeAllViews()
+
+        val table = data.tableData ?: TableData().also { data.tableData = it }
+        val density = resources.displayMetrics.density
+        val isDark = themeColors?.isDark ?: false
+        val textColor = resolveTextColor()
+        val accentCol = themeColors?.accent ?: Color.parseColor("#4F46E5")
+        val borderColor = if (isDark) Color.parseColor("#334155") else Color.parseColor("#CBD5E1")
+        val headerBg = if (isDark) Color.parseColor("#1E293B") else Color.parseColor("#F1F5F9")
+        val headerTextColor = if (isDark) Color.parseColor("#94A3B8") else Color.parseColor("#64748B")
+
+        // Ensure cell grid matches rows x cols
+        while (table.cells.size < table.rows) {
+            table.cells.add(MutableList(table.cols) { "" })
+        }
+        while (table.cells.size > table.rows) {
+            table.cells.removeAt(table.cells.size - 1)
+        }
+        for (row in table.cells) {
+            while (row.size < table.cols) row.add("")
+            while (row.size > table.cols) row.removeAt(row.size - 1)
+        }
+
+        val showColHeaders = (table.colHeaders != TableIndexStyle.NONE)
+        val showRowHeaders = (table.rowHeaders != TableIndexStyle.NONE)
+
+        // 1. Column Header Row (if enabled)
+        if (showColHeaders) {
+            val colHeaderRow = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            if (showRowHeaders) {
+                val corner = TextView(context).apply {
+                    layoutParams = LinearLayout.LayoutParams((44 * density).toInt(), (32 * density).toInt())
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        setColor(headerBg)
+                        setStroke((1 * density).toInt(), borderColor)
+                    }
+                }
+                colHeaderRow.addView(corner)
+            }
+            for (c in 0 until table.cols) {
+                val colLabel = getColHeaderLabel(c, table.colHeaders)
+                val th = TextView(context).apply {
+                    layoutParams = LinearLayout.LayoutParams((84 * density).toInt(), (32 * density).toInt())
+                    text = colLabel
+                    textSize = 12f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(headerTextColor)
+                    gravity = Gravity.CENTER
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        setColor(headerBg)
+                        setStroke((1 * density).toInt(), borderColor)
+                    }
+                }
+                colHeaderRow.addView(th)
+            }
+            tableContainer.addView(colHeaderRow)
+        }
+
+        // 2. Data Rows
+        for (r in 0 until table.rows) {
+            val rowLayout = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            if (showRowHeaders) {
+                val rowLabel = getRowHeaderLabel(r, table.rowHeaders)
+                val rh = TextView(context).apply {
+                    layoutParams = LinearLayout.LayoutParams((44 * density).toInt(), (40 * density).toInt())
+                    text = rowLabel
+                    textSize = 12f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(headerTextColor)
+                    gravity = Gravity.CENTER
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        setColor(headerBg)
+                        setStroke((1 * density).toInt(), borderColor)
+                    }
+                }
+                rowLayout.addView(rh)
+            }
+
+            for (c in 0 until table.cols) {
+                val cellEdit = EditText(context).apply {
+                    layoutParams = LinearLayout.LayoutParams((84 * density).toInt(), (40 * density).toInt())
+                    setText(table.cells[r][c])
+                    textSize = data.fontSizeSp.coerceIn(11f, 18f)
+                    setTextColor(textColor)
+                    setHintTextColor(if (isDark) Color.parseColor("#64748B") else Color.parseColor("#94A3B8"))
+                    hint = "..."
+                    gravity = Gravity.CENTER_VERTICAL or Gravity.START
+                    setPadding((8 * density).toInt(), 0, (8 * density).toInt(), 0)
+                    isSingleLine = true
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        setColor(Color.TRANSPARENT)
+                        setStroke((1 * density).toInt(), borderColor)
+                    }
+                }
+                cellEdit.addTextChangedListener(object : TextWatcher {
+                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                    override fun afterTextChanged(s: Editable?) {
+                        if (r < table.cells.size && c < table.cells[r].size) {
+                            table.cells[r][c] = s?.toString() ?: ""
+                        }
+                    }
+                })
+                cellEdit.setOnFocusChangeListener { _, _ -> onTextFocusChanged() }
+                cellEdit.setOnTouchListener { _, event ->
+                    if (!isSelectedState && event.actionMasked == MotionEvent.ACTION_UP) {
+                        onBoxTapped(this@NoteBoxView)
+                    }
+                    false
+                }
+                rowLayout.addView(cellEdit)
+            }
+            tableContainer.addView(rowLayout)
+        }
+
+        // 3. Quick Table Row/Col Modification Controls
+        val controlsLayout = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, (8 * density).toInt(), 0, 0)
+        }
+        val btnAddRow = TextView(context).apply {
+            text = "+ Row"
+            setTextColor(accentCol)
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            setPadding((12 * density).toInt(), (6 * density).toInt(), (12 * density).toInt(), (6 * density).toInt())
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 8 * density
+                setColor(if (isDark) Color.argb(30, 255, 255, 255) else Color.argb(20, 79, 70, 229))
+            }
+            setOnClickListener {
+                table.rows++
+                table.cells.add(MutableList(table.cols) { "" })
+                rebuildTable()
+            }
+        }
+        val btnAddCol = TextView(context).apply {
+            text = "+ Column"
+            setTextColor(accentCol)
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            val lp = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                marginStart = (8 * density).toInt()
+            }
+            layoutParams = lp
+            setPadding((12 * density).toInt(), (6 * density).toInt(), (12 * density).toInt(), (6 * density).toInt())
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 8 * density
+                setColor(if (isDark) Color.argb(30, 255, 255, 255) else Color.argb(20, 79, 70, 229))
+            }
+            setOnClickListener {
+                table.cols++
+                for (row in table.cells) {
+                    row.add("")
+                }
+                rebuildTable()
+            }
+        }
+        controlsLayout.addView(btnAddRow)
+        controlsLayout.addView(btnAddCol)
+        tableContainer.addView(controlsLayout)
+    }
+
+    private fun toLetter(index: Int): String {
+        var n = index
+        val sb = StringBuilder()
+        while (n >= 0) {
+            sb.append(('A'.code + (n % 26)).toChar())
+            n = n / 26 - 1
+        }
+        return sb.reverse().toString()
+    }
+
+    private fun toRoman(num: Int): String {
+        val vals = intArrayOf(1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1)
+        val syms = arrayOf("M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I")
+        var n = num.coerceAtLeast(1)
+        val sb = StringBuilder()
+        for (i in vals.indices) {
+            while (n >= vals[i]) {
+                n -= vals[i]
+                sb.append(syms[i])
+            }
+        }
+        return if (sb.isEmpty()) "I" else sb.toString()
+    }
+
+    private fun getColHeaderLabel(col: Int, style: TableIndexStyle): String {
+        return when (style) {
+            TableIndexStyle.NUMBERS -> (col + 1).toString()
+            TableIndexStyle.LETTERS -> toLetter(col)
+            TableIndexStyle.ROMAN -> toRoman(col + 1)
+            TableIndexStyle.NONE -> ""
+        }
+    }
+
+    private fun getRowHeaderLabel(row: Int, style: TableIndexStyle): String {
+        return when (style) {
+            TableIndexStyle.NUMBERS -> (row + 1).toString()
+            TableIndexStyle.LETTERS -> toLetter(row)
+            TableIndexStyle.ROMAN -> toRoman(row + 1)
+            TableIndexStyle.NONE -> ""
+        }
     }
 
     private fun buildShapeContent(): View {
@@ -344,10 +690,16 @@ class NoteBoxView(
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(0, 4, 0, 4)
+                setOnClickListener {
+                    if (!isSelectedState) onBoxTapped(this@NoteBoxView)
+                }
             }
             val checkBox = CheckBox(context).apply {
                 isChecked = item.checked
                 buttonTintList = ColorStateList.valueOf(accentCol)
+                setOnClickListener {
+                    if (!isSelectedState) onBoxTapped(this@NoteBoxView)
+                }
             }
             val itemEdit = EditText(context).apply {
                 setText(item.text)
@@ -370,6 +722,12 @@ class NoteBoxView(
                 }
             })
             itemEdit.setOnFocusChangeListener { _, _ -> onTextFocusChanged() }
+            itemEdit.setOnTouchListener { _, event ->
+                if (!isSelectedState && event.actionMasked == MotionEvent.ACTION_UP) {
+                    onBoxTapped(this@NoteBoxView)
+                }
+                false
+            }
             checkBox.setOnCheckedChangeListener { _, isChecked ->
                 item.checked = isChecked
                 itemEdit.paintFlags = if (isChecked) {
@@ -537,6 +895,34 @@ class NoteBoxView(
             }
         }
 
+        if (data.kind == BoxKind.TABLE) {
+            val table = data.tableData ?: TableData().also { data.tableData = it }
+            builder.addItem("Add Row", subtitle = "Insert new row at bottom") {
+                table.rows++
+                table.cells.add(MutableList(table.cols) { "" })
+                rebuildTable()
+            }
+            builder.addItem("Add Column", subtitle = "Insert new column at right") {
+                table.cols++
+                for (r in table.cells) r.add("")
+                rebuildTable()
+            }
+            if (table.rows > 1) {
+                builder.addItem("Delete Last Row", subtitle = "Remove bottom row") {
+                    table.rows--
+                    if (table.cells.isNotEmpty()) table.cells.removeAt(table.cells.size - 1)
+                    rebuildTable()
+                }
+            }
+            if (table.cols > 1) {
+                builder.addItem("Delete Last Column", subtitle = "Remove rightmost column") {
+                    table.cols--
+                    for (r in table.cells) if (r.isNotEmpty()) r.removeAt(r.size - 1)
+                    rebuildTable()
+                }
+            }
+        }
+
         builder.addItem("Delete Card", subtitle = "Remove card from canvas") {
             onDeleteRequested(this)
         }
@@ -613,12 +999,16 @@ class NoteBoxView(
 
     fun focusTextInput() {
         (contentContainer as? EditText)?.let { et ->
+            et.isFocusable = true
+            et.isFocusableInTouchMode = true
             et.requestFocus()
             et.setSelection(et.text.length)
-            et.post {
-                val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
+            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
+            imm?.showSoftInput(et, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+            et.postDelayed({
+                et.requestFocus()
                 imm?.showSoftInput(et, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
-            }
+            }, 80)
         }
     }
 

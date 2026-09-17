@@ -67,6 +67,13 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
     var onBackgroundTapped: (() -> Unit)? = null
     var defaultConnectorStyle: String = "arrow"
     var defaultConnectorColor: Int = Color.parseColor("#6366F1")
+    var isFreeArrowMode: Boolean = false
+    var selectedTailStyle: String = "none"
+    var selectedHeadStyle: String = "triangle"
+    var isArrowForeground: Boolean = false
+    private var freeArrowStartX = 0f
+    private var freeArrowStartY = 0f
+    private var isDrawingFreeArrow = false
 
     // Panning & Gestures
     private var lastPanX = 0f
@@ -326,11 +333,20 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
         val isConnect = (activeTool == CanvasTool.CONNECT)
         firstSelectedForConnect?.setHighlighted(false)
         firstSelectedForConnect = null
-        boxes.forEach { it.setConnectMode(isConnect) }
+        boxes.forEach { it.setConnectMode(isConnect && !isFreeArrowMode) }
 
         if (activeTool != CanvasTool.SELECT) {
             clearSelection()
         }
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        // When drawing or erasing, route directly to onTouchEvent so that child cards and edit texts
+        // cannot intercept or block freehand ink strokes!
+        if (activeTool == CanvasTool.DRAW || activeTool == CanvasTool.ERASER) {
+            return onTouchEvent(ev)
+        }
+        return super.dispatchTouchEvent(ev)
     }
 
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
@@ -361,6 +377,78 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
                 otherOverlay.handleDrawingTouchEvent(event, contentX, contentY)
             }
             return true
+        }
+
+        // Free-floating Arrow Drawing on Canvas
+        if (activeTool == CanvasTool.CONNECT && isFreeArrowMode) {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    freeArrowStartX = contentX
+                    freeArrowStartY = contentY
+                    isDrawingFreeArrow = true
+                    val preview = ConnectorData(
+                        startX = freeArrowStartX,
+                        startY = freeArrowStartY,
+                        endX = contentX,
+                        endY = contentY,
+                        headStyle = selectedHeadStyle,
+                        tailStyle = selectedTailStyle,
+                        color = defaultConnectorColor,
+                        strokeWidth = 5f,
+                        isForeground = isArrowForeground
+                    )
+                    connectorOverlay.previewArrow = preview
+                    connectorOverlay.invalidate()
+                    return true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (isDrawingFreeArrow) {
+                        connectorOverlay.previewArrow?.let {
+                            it.endX = contentX
+                            it.endY = contentY
+                        }
+                        connectorOverlay.invalidate()
+                        return true
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (isDrawingFreeArrow) {
+                        isDrawingFreeArrow = false
+                        connectorOverlay.previewArrow = null
+                        connectorOverlay.invalidate()
+                        val dist = kotlin.math.hypot(
+                            (contentX - freeArrowStartX).toDouble(),
+                            (contentY - freeArrowStartY).toDouble()
+                        ).toFloat()
+                        if (dist > 15f) {
+                            val newArrow = ConnectorData(
+                                startX = freeArrowStartX,
+                                startY = freeArrowStartY,
+                                endX = contentX,
+                                endY = contentY,
+                                headStyle = selectedHeadStyle,
+                                tailStyle = selectedTailStyle,
+                                color = defaultConnectorColor,
+                                strokeWidth = 5f,
+                                isForeground = isArrowForeground
+                            )
+                            connectors.add(newArrow)
+                            connectorOverlay.invalidate()
+                            undoRedoManager?.record(object : CanvasCommand {
+                                override fun execute() {
+                                    if (!connectors.contains(newArrow)) connectors.add(newArrow)
+                                    connectorOverlay.invalidate()
+                                }
+                                override fun undo() {
+                                    connectors.remove(newArrow)
+                                    connectorOverlay.invalidate()
+                                }
+                            })
+                        }
+                        return true
+                    }
+                }
+            }
         }
 
         // Natural Navigation & 1-finger canvas panning:
@@ -408,20 +496,29 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
         shapeType: ShapeType = ShapeType.ROUNDED_RECT,
         imagePath: String? = null,
         targetBoardId: String? = null,
-        targetBoardName: String? = null
+        targetBoardName: String? = null,
+        tableData: TableData? = null,
+        customWidth: Float? = null,
+        customHeight: Float? = null
     ): NoteBoxView {
+        val density = resources.displayMetrics.density
+        val topInsetPx = 64f * density
+        val bottomInsetPx = 72f * density
+        val visibleCenterYPx = (topInsetPx + (height - bottomInsetPx)) / 2f
         val viewportCenterContentX = (width / 2f - contentLayer.translationX) / scale
-        val viewportCenterContentY = (height / 2f - contentLayer.translationY) / scale
+        val viewportCenterContentY = (visibleCenterYPx - contentLayer.translationY) / scale
 
-        val defaultW = when (kind) {
+        val defaultW = customWidth ?: when (kind) {
             BoxKind.IMAGE -> 240f
             BoxKind.BOARD -> 200f
+            BoxKind.TABLE -> 320f
             BoxKind.SHAPE -> if (shapeType == ShapeType.CIRCLE) 200f else 220f
             else -> 260f
         }
-        val defaultH = when (kind) {
+        val defaultH = customHeight ?: when (kind) {
             BoxKind.IMAGE -> 240f
             BoxKind.BOARD -> 150f
+            BoxKind.TABLE -> 200f
             BoxKind.SHAPE -> if (shapeType == ShapeType.CIRCLE) 200f else 180f
             else -> 170f
         }
@@ -429,7 +526,7 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
         val color = if (kind == BoxKind.SHAPE && shapeType == ShapeType.STICKY_NOTE) {
             Color.parseColor("#FEF08A") // Warm sticky note yellow
         } else {
-            autoColors[colorCursor % autoColors.size].also { colorCursor++ }
+            themeColors.cardDefaultBg
         }
 
         val data = NoteBoxData(
@@ -442,7 +539,9 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
             targetBoardId = targetBoardId,
             targetBoardName = targetBoardName,
             imagePath = imagePath,
-            boxColor = color
+            boxColor = color,
+            textColor = themeColors.defaultTextColor,
+            tableData = tableData
         )
 
         val box = addBoxFromData(data)
@@ -509,16 +608,26 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
             handleConnectSelection(box)
             return
         }
+        // Bring tapped box to front in contentLayer and end of boxes list
+        boxes.remove(box)
+        boxes.add(box)
+        box.bringToFront()
+        fgDrawingOverlay.bringToFront()
+        selectionOverlay.bringToFront()
+        marqueeOverlay.bringToFront()
+
         if (!selectedBoxes.contains(box)) {
             clearSelection()
             selectedBoxes.add(box)
             box.setSelectedState(true)
         }
         selectionOverlay.targetBox = box
-        selectionOverlay.bringToFront()
-        marqueeOverlay.bringToFront()
         selectionOverlay.invalidate()
         onSelectionChanged?.invoke(selectedBoxes.size)
+
+        if (box.data.kind == BoxKind.TEXT || box.data.kind == BoxKind.SHAPE) {
+            box.focusTextInput()
+        }
     }
 
     // ---------- Group Moving ----------
@@ -541,9 +650,9 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
         if (moveStartPositions.isNotEmpty()) {
             val initial = moveStartPositions.toMap()
 
-            // Optional grid snap
+            // Optional grid snap (matching 32dp canvas grid)
             if (gridSnap) {
-                val snap = 24f
+                val snap = 32f * resources.displayMetrics.density
                 for (box in selectedBoxes) {
                     val sx = Math.round(box.data.x / snap) * snap
                     val sy = Math.round(box.data.y / snap) * snap
@@ -724,7 +833,10 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
                 fromId = current.data.id,
                 toId = box.data.id,
                 style = defaultConnectorStyle,
-                color = defaultConnectorColor
+                color = defaultConnectorColor,
+                headStyle = selectedHeadStyle,
+                tailStyle = selectedTailStyle,
+                isForeground = isArrowForeground
             )
             connectors.add(newConn)
             current.setHighlighted(false)

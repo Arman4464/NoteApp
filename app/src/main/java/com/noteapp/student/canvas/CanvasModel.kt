@@ -3,9 +3,34 @@ package com.noteapp.student.canvas
 import android.graphics.Color
 import java.util.UUID
 
-enum class BoxKind { TEXT, IMAGE, CHECKLIST, SHAPE, BOARD, LINK }
+enum class BoxKind { TEXT, IMAGE, CHECKLIST, SHAPE, BOARD, LINK, TABLE }
 
 enum class ShapeType { RECTANGLE, ROUNDED_RECT, CIRCLE, STICKY_NOTE, DIAMOND, STAR, CLOUD, TRIANGLE }
+
+enum class TableIndexStyle {
+    NUMBERS,   // 1, 2, 3...
+    LETTERS,   // A, B, C...
+    ROMAN,     // I, II, III...
+    NONE
+}
+
+data class TableData(
+    var rows: Int = 3,
+    var cols: Int = 3,
+    var rowHeaders: TableIndexStyle = TableIndexStyle.NUMBERS,
+    var colHeaders: TableIndexStyle = TableIndexStyle.LETTERS,
+    var cells: MutableList<MutableList<String>> = mutableListOf()
+) {
+    fun copyDeep(): TableData {
+        return TableData(
+            rows = rows,
+            cols = cols,
+            rowHeaders = rowHeaders,
+            colHeaders = colHeaders,
+            cells = cells.map { it.toMutableList() }.toMutableList()
+        )
+    }
+}
 
 data class ChecklistItem(
     val id: String = UUID.randomUUID().toString(),
@@ -39,11 +64,13 @@ data class NoteBoxData(
     var italic: Boolean = false,
     var imagePath: String? = null,
     var checklist: MutableList<ChecklistItem> = mutableListOf(),
+    var tableData: TableData? = null,
     var zIndex: Int = 0
 ) {
     fun copyDeep(): NoteBoxData {
         return copy(
-            checklist = checklist.map { it.copy() }.toMutableList()
+            checklist = checklist.map { it.copy() }.toMutableList(),
+            tableData = tableData?.copyDeep()
         )
     }
 }
@@ -66,15 +93,26 @@ data class DrawingStrokeData(
 }
 
 /**
- * A directional link between two boxes, referenced by id.
+ * A directional link between two boxes, or a free-floating directional arrow drawn anywhere on canvas.
  */
 data class ConnectorData(
     val id: String = UUID.randomUUID().toString(),
-    val fromId: String,
-    val toId: String,
+    val fromId: String = "",
+    val toId: String = "",
+    var startX: Float = 0f,
+    var startY: Float = 0f,
+    var endX: Float = 0f,
+    var endY: Float = 0f,
     var color: Int = Color.parseColor("#6366F1"),
-    var style: String = "arrow" // "arrow", "double_arrow", "dot", "diamond", "plain"
-)
+    var strokeWidth: Float = 5f,
+    var style: String = "arrow", // legacy support: "arrow", "double_arrow", "dot", "diamond", "plain"
+    var headStyle: String = "triangle", // "triangle", "open", "dot", "diamond", "none"
+    var tailStyle: String = "none",     // "none", "triangle", "open", "dot", "diamond", "bar"
+    var isForeground: Boolean = false
+) {
+    val isFreeArrow: Boolean
+        get() = fromId.isBlank() || toId.isBlank()
+}
 
 /**
  * Metadata for a board in a multi-page workspace.
