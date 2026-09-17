@@ -40,6 +40,15 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
     val bgDrawingOverlay: DrawingOverlayView = DrawingOverlayView(context)
     val fgDrawingOverlay: DrawingOverlayView = DrawingOverlayView(context)
     var isDrawingOnForeground: Boolean = false
+        set(value) {
+            field = value
+            updateToolState()
+            if (value) {
+                fgDrawingOverlay.bringToFront()
+                selectionOverlay.bringToFront()
+                marqueeOverlay.bringToFront()
+            }
+        }
     val drawingOverlay: DrawingOverlayView get() = if (isDrawingOnForeground) fgDrawingOverlay else bgDrawingOverlay
     val marqueeOverlay: MarqueeOverlayView = MarqueeOverlayView(context)
     val selectionOverlay: SelectionTransformOverlayView = SelectionTransformOverlayView(context)
@@ -593,6 +602,16 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
             onTextFocusChanged = { onTextFocusEvent?.invoke() },
             getScale = { scale }
         )
+        box.onColorChanged = { b, oldColor, newColor ->
+            undoRedoManager?.record(object : CanvasCommand {
+                override fun execute() {
+                    b.setBoxColor(newColor, recordUndo = false)
+                }
+                override fun undo() {
+                    b.setBoxColor(oldColor, recordUndo = false)
+                }
+            })
+        }
         boxes.add(box)
         contentLayer.addView(box)
         fgDrawingOverlay.bringToFront()
@@ -624,10 +643,6 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
         selectionOverlay.targetBox = box
         selectionOverlay.invalidate()
         onSelectionChanged?.invoke(selectedBoxes.size)
-
-        if (box.data.kind == BoxKind.TEXT || box.data.kind == BoxKind.SHAPE) {
-            box.focusTextInput()
-        }
     }
 
     // ---------- Group Moving ----------
@@ -798,6 +813,26 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
             v.setSelectedState(true)
         }
         onSelectionChanged?.invoke(selectedBoxes.size)
+
+        undoRedoManager?.record(object : CanvasCommand {
+            override fun execute() {
+                for (v in duplicatedViews) {
+                    if (!boxes.contains(v)) {
+                        boxes.add(v)
+                        contentLayer.addView(v)
+                    }
+                }
+                fgDrawingOverlay.bringToFront()
+                selectionOverlay.bringToFront()
+                marqueeOverlay.bringToFront()
+                connectorOverlay.invalidate()
+            }
+            override fun undo() {
+                for (v in duplicatedViews) {
+                    removeBoxInternal(v)
+                }
+            }
+        })
     }
 
     private fun deleteSingleBox(box: NoteBoxView) {
@@ -1016,7 +1051,10 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
     fun allBoxViews(): List<NoteBoxView> = boxes.toList()
     fun allConnectors(): List<ConnectorData> = connectors.toList()
 
-    fun clearAll() {
+    private var searchMatches = mutableListOf<NoteBoxView>()
+    private var currentSearchIndex = -1
+
+    private fun clearAllInternal() {
         boxes.forEach { contentLayer.removeView(it) }
         boxes.clear()
         selectedBoxes.clear()
@@ -1028,8 +1066,95 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
         onSelectionChanged?.invoke(0)
     }
 
+    fun clearAll(recordUndo: Boolean = true) {
+        if (recordUndo && (boxes.isNotEmpty() || connectors.isNotEmpty() || bgDrawingOverlay.getAllStrokes().isNotEmpty() || fgDrawingOverlay.getAllStrokes().isNotEmpty())) {
+            val savedBoxes = boxes.map { it.data.copyDeep() }
+            val savedConnectors = connectors.map { it.copy() }
+            val savedBgStrokes = bgDrawingOverlay.getAllStrokes().map { it.copyDeep() }
+            val savedFgStrokes = fgDrawingOverlay.getAllStrokes().map { it.copyDeep() }
+
+            clearAllInternal()
+
+            undoRedoManager?.record(object : CanvasCommand {
+                override fun execute() {
+                    clearAllInternal()
+                }
+                override fun undo() {
+                    clearAllInternal()
+                    for (b in savedBoxes) {
+                        addBoxFromData(b.copyDeep())
+                    }
+                    connectors.addAll(savedConnectors.map { it.copy() })
+                    bgDrawingOverlay.setStrokes(savedBgStrokes.map { it.copyDeep() })
+                    fgDrawingOverlay.setStrokes(savedFgStrokes.map { it.copyDeep() })
+                    connectorOverlay.invalidate()
+                }
+            })
+        } else {
+            clearAllInternal()
+        }
+    }
+
+    fun findAndJump(query: String, forward: Boolean = true): Pair<Int, Int>? {
+        val trimmed = query.trim()
+        if (trimmed.isEmpty()) {
+            searchMatches.clear()
+            currentSearchIndex = -1
+            return null
+        }
+
+        val newMatches = boxes.filter { box ->
+            when (box.data.kind) {
+                BoxKind.TEXT, BoxKind.SHAPE -> box.data.text.contains(trimmed, ignoreCase = true)
+                BoxKind.CHECKLIST -> box.data.checklist.any { it.text.contains(trimmed, ignoreCase = true) }
+                BoxKind.TABLE -> box.data.tableData?.let { td ->
+                    td.cells.any { row -> row.any { cell -> cell.contains(trimmed, ignoreCase = true) } } ||
+                    td.customColLabels.any { it.contains(trimmed, ignoreCase = true) } ||
+                    td.customRowLabels.any { it.contains(trimmed, ignoreCase = true) }
+                } ?: false
+                BoxKind.BOARD -> (box.data.targetBoardName ?: box.data.text).contains(trimmed, ignoreCase = true)
+                BoxKind.LINK -> box.data.text.contains(trimmed, ignoreCase = true)
+                BoxKind.IMAGE -> false
+            }
+        }
+
+        if (newMatches.isEmpty()) {
+            searchMatches.clear()
+            currentSearchIndex = -1
+            return Pair(0, 0)
+        }
+
+        searchMatches.clear()
+        searchMatches.addAll(newMatches)
+
+        if (forward) {
+            currentSearchIndex = (currentSearchIndex + 1) % searchMatches.size
+        } else {
+            currentSearchIndex = if (currentSearchIndex <= 0) searchMatches.size - 1 else currentSearchIndex - 1
+        }
+
+        val target = searchMatches[currentSearchIndex]
+
+        clearSelection()
+        selectedBoxes.add(target)
+        target.setSelectedState(true)
+        selectionOverlay.targetBox = target
+        selectionOverlay.bringToFront()
+        selectionOverlay.invalidate()
+        onSelectionChanged?.invoke(1)
+
+        teleportTo(target.centerX(), target.centerY())
+
+        return Pair(currentSearchIndex + 1, searchMatches.size)
+    }
+
+    fun clearSearch() {
+        searchMatches.clear()
+        currentSearchIndex = -1
+    }
+
     fun loadBoardData(board: BoardData) {
-        clearAll()
+        clearAll(recordUndo = false)
         for (bd in board.boxes) {
             addBoxFromData(bd)
         }

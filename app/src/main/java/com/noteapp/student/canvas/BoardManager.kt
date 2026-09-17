@@ -43,7 +43,9 @@ class BoardManager(private val context: Context) {
                             name = o.getString("name"),
                             createdAt = o.optLong("createdAt", System.currentTimeMillis()),
                             updatedAt = o.optLong("updatedAt", System.currentTimeMillis()),
-                            parentId = if (o.has("parentId") && !o.isNull("parentId")) o.getString("parentId") else null
+                            parentId = if (o.has("parentId") && !o.isNull("parentId")) o.getString("parentId") else null,
+                            subThemeId = if (o.has("subThemeId") && !o.isNull("subThemeId")) o.getString("subThemeId") else null,
+                            subThemeIsDark = if (o.has("subThemeIsDark") && !o.isNull("subThemeIsDark")) o.getBoolean("subThemeIsDark") else null
                         )
                     )
                 }
@@ -101,6 +103,8 @@ class BoardManager(private val context: Context) {
                 o.put("createdAt", m.createdAt)
                 o.put("updatedAt", m.updatedAt)
                 o.put("parentId", m.parentId)
+                o.put("subThemeId", m.subThemeId)
+                o.put("subThemeIsDark", m.subThemeIsDark)
                 array.put(o)
             }
             root.put("boards", array)
@@ -108,6 +112,17 @@ class BoardManager(private val context: Context) {
         } catch (e: Exception) {
             e.printStackTrace()
         }
+    }
+
+    fun getBreadcrumbs(boardId: String): List<BoardMeta> {
+        val chain = mutableListOf<BoardMeta>()
+        var cur = boardList.firstOrNull { it.id == boardId }
+        val visited = mutableSetOf<String>()
+        while (cur != null && visited.add(cur.id)) {
+            chain.add(0, cur)
+            cur = cur.parentId?.let { pId -> boardList.firstOrNull { it.id == pId } }
+        }
+        return chain
     }
 
     fun getAllBoards(): List<BoardMeta> = boardList.toList()

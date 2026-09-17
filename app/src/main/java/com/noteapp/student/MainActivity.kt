@@ -42,6 +42,7 @@ import com.noteapp.student.export.ExportManager
 import com.noteapp.student.home.BoardGridAdapter
 import com.noteapp.student.settings.AppIconManager
 import com.noteapp.student.settings.AppSettings
+import com.noteapp.student.settings.BoardSubTheme
 import com.noteapp.student.settings.GridStyle
 import com.noteapp.student.settings.ThemeColors
 import com.noteapp.student.settings.ThemeManager
@@ -85,8 +86,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var topBar: LinearLayout
     private lateinit var btnCanvasBack: ImageButton
     private lateinit var btnNavBack: ImageButton
+    private lateinit var btnBreadcrumbs: LinearLayout
+    private lateinit var tvBreadcrumbs: TextView
     private lateinit var btnBoardSelector: LinearLayout
     private lateinit var tvCurrentBoardName: TextView
+    private lateinit var btnCanvasSearch: ImageButton
     private lateinit var btnMinimap: ImageButton
     private lateinit var btnUndo: ImageButton
     private lateinit var btnRedo: ImageButton
@@ -96,6 +100,20 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnMenu: ImageButton
     private lateinit var btnCollapseTopBar: ImageButton
     private lateinit var btnExpandTopBar: ImageButton
+
+    // Canvas Find & Jump Search Bar on Ceiling
+    private lateinit var searchBarContainer: LinearLayout
+    private lateinit var etCanvasSearch: EditText
+    private lateinit var tvCanvasSearchCount: TextView
+    private lateinit var btnSearchPrev: ImageButton
+    private lateinit var btnSearchNext: ImageButton
+    private lateinit var btnSearchClose: ImageButton
+
+    // Themed Top HUD Notification Pill
+    private lateinit var hudNotificationBar: LinearLayout
+    private lateinit var ivHudIcon: ImageView
+    private lateinit var tvHudMessage: TextView
+    private var hudDismissRunnable: Runnable? = null
 
     // Minimap HUD
     private lateinit var minimapContainer: FrameLayout
@@ -206,23 +224,51 @@ class MainActivity : AppCompatActivity() {
                 }
                 canvas.addBox(kind = BoxKind.IMAGE, imagePath = savedPath, customWidth = targetW, customHeight = targetH)
             } else {
-                Toast.makeText(this, "Failed to load image", Toast.LENGTH_SHORT).show()
+                showThemedToast("Failed to load image", R.drawable.ic_image)
             }
         }
     }
 
     private val pickProjectFile = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri != null) {
-            val board = ExportManager.importProjectFile(this, uri)
-            if (board != null) {
-                boardManager.saveBoard(board)
-                Toast.makeText(this, "Board '${board.meta.name}' imported successfully!", Toast.LENGTH_SHORT).show()
-                refreshHomeBoards()
-                showCanvasScreen(board.meta.id)
-            } else {
-                Toast.makeText(this, "Failed to import project file", Toast.LENGTH_SHORT).show()
-            }
+            handleIncomingProject(uri)
         }
+    }
+
+    private fun handleIncomingProject(uri: Uri) {
+        val board = ExportManager.importProjectFile(this, uri)
+        if (board != null) {
+            val allBoards = boardManager.getAllBoards()
+            val existing = allBoards.find { it.id == board.meta.id }
+            val finalBoard = if (existing != null) {
+                val newMeta = board.meta.copy(
+                    id = java.util.UUID.randomUUID().toString(),
+                    name = "${board.meta.name} (Imported)"
+                )
+                board.copy(meta = newMeta)
+            } else {
+                board
+            }
+            boardManager.saveBoard(finalBoard)
+            showThemedToast("Imported '${finalBoard.meta.name}' (${finalBoard.boxes.size} elements)", R.drawable.ic_boards)
+            refreshHomeBoards()
+            showCanvasScreen(finalBoard.meta.id)
+        } else {
+            showThemedToast("Failed to import .noteapp file", R.drawable.ic_boards)
+        }
+    }
+
+    private fun handleIncomingIntent(intent: android.content.Intent?) {
+        val uri = intent?.data ?: return
+        if (intent.action == android.content.Intent.ACTION_VIEW || intent.action == android.content.Intent.ACTION_SEND) {
+            handleIncomingProject(uri)
+        }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent?) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIncomingIntent(intent)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -250,11 +296,14 @@ class MainActivity : AppCompatActivity() {
         // Open Homepage initially
         showHomeScreen()
 
+        // Handle opening .noteapp files from external apps/file managers
+        handleIncomingIntent(intent)
+
         // Show onboarding tutorial on first launch with skip button
         if (!appSettings.tutorialCompleted) {
             canvas.post {
                 TutorialDialog(this, appSettings) {
-                    Toast.makeText(this, "Welcome to NoteApp! Enjoy exploring your workspace.", Toast.LENGTH_SHORT).show()
+                    showThemedToast("Welcome to NoteApp! Enjoy exploring your workspace.")
                 }.show()
             }
         }
@@ -276,12 +325,21 @@ class MainActivity : AppCompatActivity() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (canvasContainer.visibility == View.VISIBLE) {
+                    if (searchBarContainer.visibility == View.VISIBLE) {
+                        closeCanvasSearch()
+                        return
+                    }
                     if (boardManager.canNavigateBack()) {
                         saveActiveBoard()
                         val parentBoard = boardManager.navigateBack()
                         if (parentBoard != null) {
                             canvas.loadBoardData(parentBoard)
                             undoRedoManager.clear()
+                            val globalColors = ThemeManager.getThemeColors(appSettings.theme)
+                            val colors = BoardSubTheme.resolveThemeColors(parentBoard.meta.subThemeId, parentBoard.meta.subThemeIsDark, globalColors)
+                            canvas.applyTheme(colors)
+                            minimapView.themeColors = colors
+                            applyCanvasTheme(colors)
                             updateBoardHeader()
                         }
                     } else {
@@ -322,8 +380,11 @@ class MainActivity : AppCompatActivity() {
         topBar = findViewById(R.id.topBar)
         btnCanvasBack = findViewById(R.id.btnCanvasBack)
         btnNavBack = findViewById(R.id.btnNavBack)
+        btnBreadcrumbs = findViewById(R.id.btnBreadcrumbs)
+        tvBreadcrumbs = findViewById(R.id.tvBreadcrumbs)
         btnBoardSelector = findViewById(R.id.btnBoardSelector)
         tvCurrentBoardName = findViewById(R.id.tvCurrentBoardName)
+        btnCanvasSearch = findViewById(R.id.btnCanvasSearch)
         btnMinimap = findViewById(R.id.btnMinimap)
         btnUndo = findViewById(R.id.btnUndo)
         btnRedo = findViewById(R.id.btnRedo)
@@ -333,6 +394,19 @@ class MainActivity : AppCompatActivity() {
         btnMenu = findViewById(R.id.btnMenu)
         btnCollapseTopBar = findViewById(R.id.btnCollapseTopBar)
         btnExpandTopBar = findViewById(R.id.btnExpandTopBar)
+
+        // Canvas Find & Jump Search Bar on Ceiling
+        searchBarContainer = findViewById(R.id.searchBarContainer)
+        etCanvasSearch = findViewById(R.id.etCanvasSearch)
+        tvCanvasSearchCount = findViewById(R.id.tvCanvasSearchCount)
+        btnSearchPrev = findViewById(R.id.btnSearchPrev)
+        btnSearchNext = findViewById(R.id.btnSearchNext)
+        btnSearchClose = findViewById(R.id.btnSearchClose)
+
+        // Themed Top HUD Notification Pill
+        hudNotificationBar = findViewById(R.id.hudNotificationBar)
+        ivHudIcon = findViewById(R.id.ivHudIcon)
+        tvHudMessage = findViewById(R.id.tvHudMessage)
 
         // Minimap HUD
         minimapContainer = findViewById(R.id.minimapContainer)
@@ -426,19 +500,19 @@ class MainActivity : AppCompatActivity() {
             onDuplicateClick = { board ->
                 boardManager.duplicateBoard(board.id)
                 refreshHomeBoards()
-                Toast.makeText(this, "Board duplicated", Toast.LENGTH_SHORT).show()
+                showThemedToast("Board duplicated", R.drawable.ic_boards)
             },
             onExportClick = { board ->
                 val boardData = boardManager.loadBoard(board.id)
                 val exported = ExportManager.exportProjectFile(this, boardData)
                 if (exported != null) {
-                    Toast.makeText(this, "Project exported to Documents", Toast.LENGTH_SHORT).show()
-                    ExportManager.shareUri(this, exported.second, "application/json")
+                    showThemedToast("Project exported to Documents", R.drawable.ic_download)
+                    ExportManager.shareUri(this, exported.second, "application/octet-stream")
                 }
             },
             onDeleteClick = { board ->
                 if (boardManager.getAllBoards().size <= 1) {
-                    Toast.makeText(this, "Cannot delete the only board", Toast.LENGTH_SHORT).show()
+                    showThemedToast("Cannot delete the only board")
                 } else {
                     ThemedDialog.Builder(this, ThemeManager.getThemeColors(appSettings.theme))
                         .setTitle("Delete Board")
@@ -446,7 +520,7 @@ class MainActivity : AppCompatActivity() {
                         .setPositiveButton("Delete") {
                             boardManager.deleteBoard(board.id)
                             refreshHomeBoards()
-                            Toast.makeText(this, "Board deleted", Toast.LENGTH_SHORT).show()
+                            showThemedToast("Board deleted", R.drawable.ic_close)
                         }
                         .setNegativeButton("Cancel")
                         .show()
@@ -479,6 +553,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showHomeScreen() {
+        closeCanvasSearch()
         canvas.clearSelection()
         if (canvasContainer.visibility == View.VISIBLE) {
             saveActiveBoard()
@@ -498,14 +573,62 @@ class MainActivity : AppCompatActivity() {
 
         homeContainer.visibility = View.GONE
         canvasContainer.visibility = View.VISIBLE
-        val colors = ThemeManager.getThemeColors(appSettings.theme)
-        window.statusBarColor = colors.topBarBg
-        window.navigationBarColor = colors.canvasBg
-        val insetsController = WindowCompat.getInsetsController(window, window.decorView)
-        insetsController.isAppearanceLightStatusBars = !colors.isDark
-        insetsController.isAppearanceLightNavigationBars = !colors.isDark
+
+        val globalColors = ThemeManager.getThemeColors(appSettings.theme)
+        val colors = BoardSubTheme.resolveThemeColors(boardData.meta.subThemeId, boardData.meta.subThemeIsDark, globalColors)
+        canvas.applyTheme(colors)
+        minimapView.themeColors = colors
+        applyCanvasTheme(colors)
+
         minimapView.invalidate()
         updateToolSettingsButtonState()
+    }
+
+    fun showThemedToast(message: String, iconRes: Int = 0) {
+        if (canvasContainer.visibility == View.VISIBLE) {
+            hudDismissRunnable?.let { hudNotificationBar.removeCallbacks(it) }
+            tvHudMessage.text = message
+            if (iconRes != 0) {
+                ivHudIcon.setImageResource(iconRes)
+                ivHudIcon.visibility = View.VISIBLE
+            } else {
+                ivHudIcon.visibility = View.GONE
+            }
+            val colors = canvas.themeColors
+            val bgDrawable = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 24f * resources.displayMetrics.density
+                setColor(if (colors.isDark) Color.parseColor("#0F172A") else Color.parseColor("#1E293B"))
+                setStroke((1.5f * resources.displayMetrics.density).toInt(), colors.accent)
+            }
+            hudNotificationBar.background = bgDrawable
+            tvHudMessage.setTextColor(Color.WHITE)
+            ivHudIcon.imageTintList = ColorStateList.valueOf(colors.accent)
+
+            hudNotificationBar.visibility = View.VISIBLE
+            hudNotificationBar.alpha = 0f
+            hudNotificationBar.translationY = -20f
+            hudNotificationBar.animate()
+                .alpha(1f)
+                .translationY(0f)
+                .setDuration(180)
+                .start()
+
+            val runnable = Runnable {
+                hudNotificationBar.animate()
+                    .alpha(0f)
+                    .translationY(-20f)
+                    .setDuration(220)
+                    .withEndAction {
+                        hudNotificationBar.visibility = View.GONE
+                    }
+                    .start()
+            }
+            hudDismissRunnable = runnable
+            hudNotificationBar.postDelayed(runnable, 2000)
+        } else {
+            Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun refreshHomeBoards(query: String = "") {
@@ -540,11 +663,16 @@ class MainActivity : AppCompatActivity() {
             val newBoard = boardManager.navigateToSubBoard(subBoardId)
             canvas.loadBoardData(newBoard)
             undoRedoManager.clear()
+            val globalColors = ThemeManager.getThemeColors(appSettings.theme)
+            val colors = BoardSubTheme.resolveThemeColors(newBoard.meta.subThemeId, newBoard.meta.subThemeIsDark, globalColors)
+            canvas.applyTheme(colors)
+            minimapView.themeColors = colors
+            applyCanvasTheme(colors)
             updateBoardHeader()
         }
 
         canvas.onConnectorCreated = {
-            Toast.makeText(this, "Connected!", Toast.LENGTH_SHORT).show()
+            showThemedToast("Connected!", R.drawable.ic_tool_connect)
             minimapView.invalidate()
         }
 
@@ -581,7 +709,7 @@ class MainActivity : AppCompatActivity() {
             closeToolSettingsPanel()
             selectTool(CanvasTool.SELECT)
             canvas.addBox(BoxKind.TEXT)
-            Toast.makeText(this, "Text Note created", Toast.LENGTH_SHORT).show()
+            showThemedToast("Text Note created", R.drawable.ic_tool_text)
         }
 
         toolImage.setOnClickListener {
@@ -608,7 +736,7 @@ class MainActivity : AppCompatActivity() {
                 selectTool(CanvasTool.SELECT)
             } else {
                 selectTool(CanvasTool.CONNECT)
-                Toast.makeText(this, "Connect mode: tap two cards to link them", Toast.LENGTH_SHORT).show()
+                showThemedToast("Connect mode: tap two cards to link them", R.drawable.ic_tool_connect)
             }
         }
 
@@ -643,6 +771,10 @@ class MainActivity : AppCompatActivity() {
             showHomeScreen()
         }
 
+        btnBreadcrumbs.setOnClickListener {
+            showBreadcrumbsDialog()
+        }
+
         btnBoardSelector.setOnClickListener {
             showBoardSwitcherDialog()
         }
@@ -654,9 +786,48 @@ class MainActivity : AppCompatActivity() {
                 if (parentBoard != null) {
                     canvas.loadBoardData(parentBoard)
                     undoRedoManager.clear()
+                    val globalColors = ThemeManager.getThemeColors(appSettings.theme)
+                    val colors = BoardSubTheme.resolveThemeColors(parentBoard.meta.subThemeId, parentBoard.meta.subThemeIsDark, globalColors)
+                    canvas.applyTheme(colors)
+                    minimapView.themeColors = colors
+                    applyCanvasTheme(colors)
                     updateBoardHeader()
                 }
             }
+        }
+
+        btnCanvasSearch.setOnClickListener {
+            if (searchBarContainer.visibility == View.VISIBLE) {
+                closeCanvasSearch()
+            } else {
+                openCanvasSearch()
+            }
+        }
+
+        btnSearchClose.setOnClickListener {
+            closeCanvasSearch()
+        }
+
+        etCanvasSearch.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                val query = s?.toString() ?: ""
+                val result = canvas.findAndJump(query, forward = true)
+                updateSearchCounter(result)
+            }
+            override fun afterTextChanged(s: Editable?) {}
+        })
+
+        btnSearchNext.setOnClickListener {
+            val query = etCanvasSearch.text.toString()
+            val result = canvas.findAndJump(query, forward = true)
+            updateSearchCounter(result)
+        }
+
+        btnSearchPrev.setOnClickListener {
+            val query = etCanvasSearch.text.toString()
+            val result = canvas.findAndJump(query, forward = false)
+            updateSearchCounter(result)
         }
 
         btnMinimap.setOnClickListener {
@@ -676,6 +847,36 @@ class MainActivity : AppCompatActivity() {
         btnExpandTopBar.setOnClickListener {
             topBar.visibility = View.VISIBLE
             btnExpandTopBar.visibility = View.GONE
+        }
+    }
+
+    private fun openCanvasSearch() {
+        searchBarContainer.visibility = View.VISIBLE
+        etCanvasSearch.requestFocus()
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
+        imm?.showSoftInput(etCanvasSearch, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+        val query = etCanvasSearch.text.toString()
+        if (query.isNotEmpty()) {
+            val result = canvas.findAndJump(query, forward = true)
+            updateSearchCounter(result)
+        }
+    }
+
+    private fun closeCanvasSearch() {
+        searchBarContainer.visibility = View.GONE
+        etCanvasSearch.setText("")
+        canvas.clearSearch()
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
+        imm?.hideSoftInputFromWindow(etCanvasSearch.windowToken, 0)
+    }
+
+    private fun updateSearchCounter(result: Pair<Int, Int>?) {
+        if (result == null) {
+            tvCanvasSearchCount.text = ""
+        } else if (result.second == 0) {
+            tvCanvasSearchCount.text = "0/0"
+        } else {
+            tvCanvasSearchCount.text = "${result.first}/${result.second}"
         }
     }
 
@@ -705,7 +906,7 @@ class MainActivity : AppCompatActivity() {
 
         btnSelectionDuplicate.setOnClickListener {
             canvas.duplicateSelectedBoxes()
-            Toast.makeText(this, "Duplicated", Toast.LENGTH_SHORT).show()
+            showThemedToast("Duplicated", R.drawable.ic_boards)
         }
 
         btnSelectionDelete.setOnClickListener {
@@ -764,18 +965,43 @@ class MainActivity : AppCompatActivity() {
         canvas.gridStyle = appSettings.gridStyle
         canvas.gridSnap = appSettings.gridSnap
 
+        applyCanvasTheme(colors)
+        applyHomeTheme(colors)
+        AppIconManager.applyAppIcon(this, appSettings.theme)
+        updateToolSettingsButtonState()
+    }
+
+    private fun applyCanvasTheme(colors: ThemeColors) {
+        window.statusBarColor = colors.topBarBg
+        window.navigationBarColor = colors.canvasBg
+        val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+        insetsController.isAppearanceLightStatusBars = !colors.isDark
+        insetsController.isAppearanceLightNavigationBars = !colors.isDark
+
+        val mutedIconColor = if (colors.isDark) Color.parseColor("#94A3B8") else Color.parseColor("#64748B")
+
         // Ceiling Top Bar
         topBar.backgroundTintList = ColorStateList.valueOf(colors.topBarBg)
         tvCurrentBoardName.setTextColor(colors.topBarText)
         btnCanvasBack.imageTintList = ColorStateList.valueOf(colors.topBarText)
         btnNavBack.imageTintList = ColorStateList.valueOf(colors.accent)
+        tvBreadcrumbs.setTextColor(colors.accent)
+        btnCanvasSearch.imageTintList = ColorStateList.valueOf(colors.accent)
         btnMinimap.imageTintList = ColorStateList.valueOf(colors.accent)
         btnZoomFit.imageTintList = ColorStateList.valueOf(colors.topBarText)
         btnDownload.imageTintList = ColorStateList.valueOf(colors.accent)
         btnShare.imageTintList = ColorStateList.valueOf(colors.topBarText)
         btnMenu.imageTintList = ColorStateList.valueOf(colors.topBarText)
-        val mutedIconColor = if (colors.isDark) Color.parseColor("#94A3B8") else Color.parseColor("#64748B")
         btnCollapseTopBar.imageTintList = ColorStateList.valueOf(mutedIconColor)
+
+        // Search Bar container styling
+        searchBarContainer.backgroundTintList = ColorStateList.valueOf(colors.topBarBg)
+        etCanvasSearch.setTextColor(colors.topBarText)
+        etCanvasSearch.setHintTextColor(mutedIconColor)
+        tvCanvasSearchCount.setTextColor(mutedIconColor)
+        btnSearchPrev.imageTintList = ColorStateList.valueOf(mutedIconColor)
+        btnSearchNext.imageTintList = ColorStateList.valueOf(mutedIconColor)
+        btnSearchClose.imageTintList = ColorStateList.valueOf(mutedIconColor)
 
         // Ceiling Expand Pill
         btnExpandTopBar.backgroundTintList = ColorStateList.valueOf(colors.topBarBg)
@@ -812,9 +1038,6 @@ class MainActivity : AppCompatActivity() {
 
         // Refresh Undo/Redo button tints
         undoRedoManager.onStateChanged?.invoke(undoRedoManager.canUndo, undoRedoManager.canRedo)
-
-        applyHomeTheme(colors)
-        AppIconManager.applyAppIcon(this, appSettings.theme)
         updateToolSettingsButtonState()
     }
 
@@ -881,14 +1104,14 @@ class MainActivity : AppCompatActivity() {
             .addItem("Grid Snapping", subtitle = if (appSettings.gridSnap) "ON (24px snap)" else "OFF (Free placement)") {
                 appSettings.gridSnap = !appSettings.gridSnap
                 canvas.gridSnap = appSettings.gridSnap
-                Toast.makeText(this, "Grid Snap is now ${if (appSettings.gridSnap) "ON" else "OFF"}", Toast.LENGTH_SHORT).show()
+                showThemedToast("Grid Snap is now ${if (appSettings.gridSnap) "ON" else "OFF"}")
             }
             .addItem("Default Font", subtitle = appSettings.defaultFont.replaceFirstChar { it.uppercase() }) {
                 showDefaultFontDialog()
             }
             .addItem("Re-run Guided Tutorial", subtitle = "Interactive walkthrough of canvas tools") {
                 TutorialDialog(this, appSettings) {
-                    Toast.makeText(this, "Tutorial finished!", Toast.LENGTH_SHORT).show()
+                    showThemedToast("Tutorial finished!")
                 }.show()
             }
             .addItem("About NoteApp", subtitle = "Flagship Personal Infinite Canvas") {
@@ -906,7 +1129,7 @@ class MainActivity : AppCompatActivity() {
             builder.addItem(theme.displayName, isSelected = (theme == appSettings.theme)) {
                 appSettings.theme = theme
                 applySettings()
-                Toast.makeText(this, "Applied ${theme.displayName} (Theme & App Icon)", Toast.LENGTH_SHORT).show()
+                showThemedToast("Applied ${theme.displayName} (Theme & App Icon)")
             }
         }
         builder.setNegativeButton("Cancel").show()
@@ -933,7 +1156,7 @@ class MainActivity : AppCompatActivity() {
         fonts.forEachIndexed { idx, fontName ->
             builder.addItem(fontName, isSelected = (keys[idx] == appSettings.defaultFont)) {
                 appSettings.defaultFont = keys[idx]
-                Toast.makeText(this, "Default font set to $fontName", Toast.LENGTH_SHORT).show()
+                showThemedToast("Default font set to $fontName")
             }
         }
         builder.setNegativeButton("Cancel").show()
@@ -1010,7 +1233,7 @@ class MainActivity : AppCompatActivity() {
             layoutDrawSwatchesRow1.addView(createSwatchView(color) { c ->
                 canvas.bgDrawingOverlay.currentColor = c
                 canvas.fgDrawingOverlay.currentColor = c
-                Toast.makeText(this, "Ink color changed", Toast.LENGTH_SHORT).show()
+                showThemedToast("Ink color changed", R.drawable.ic_tool_draw)
             })
         }
 
@@ -1019,7 +1242,7 @@ class MainActivity : AppCompatActivity() {
             layoutDrawSwatchesRow2.addView(createSwatchView(color) { c ->
                 canvas.bgDrawingOverlay.currentColor = c
                 canvas.fgDrawingOverlay.currentColor = c
-                Toast.makeText(this, "Ink color changed", Toast.LENGTH_SHORT).show()
+                showThemedToast("Ink color changed", R.drawable.ic_tool_draw)
             })
         }
 
@@ -1045,11 +1268,10 @@ class MainActivity : AppCompatActivity() {
         btnDrawLayer.setOnClickListener {
             canvas.isDrawingOnForeground = !canvas.isDrawingOnForeground
             updateDrawLayerButton()
-            Toast.makeText(
-                this,
+            showThemedToast(
                 if (canvas.isDrawingOnForeground) "Drawing over cards (Foreground)" else "Drawing behind cards (Background)",
-                Toast.LENGTH_SHORT
-            ).show()
+                R.drawable.ic_tool_draw
+            )
         }
 
         // --- ERASER PANEL SETUP ---
@@ -1070,7 +1292,7 @@ class MainActivity : AppCompatActivity() {
                 .setPositiveButton("Clear All") {
                     canvas.bgDrawingOverlay.clearStrokes()
                     canvas.fgDrawingOverlay.clearStrokes()
-                    Toast.makeText(this, "All ink drawings cleared", Toast.LENGTH_SHORT).show()
+                    showThemedToast("All ink drawings cleared", R.drawable.ic_tool_eraser)
                     closeToolSettingsPanel()
                 }
                 .setNegativeButton("Cancel")
@@ -1081,11 +1303,10 @@ class MainActivity : AppCompatActivity() {
         btnConnectMode.setOnClickListener {
             canvas.isFreeArrowMode = !canvas.isFreeArrowMode
             updateConnectorModeUI()
-            Toast.makeText(
-                this,
+            showThemedToast(
                 if (canvas.isFreeArrowMode) "Mode: Draw Arrow on Canvas" else "Mode: Connect Two Cards",
-                Toast.LENGTH_SHORT
-            ).show()
+                R.drawable.ic_tool_connect
+            )
         }
 
         btnTailNone.setOnClickListener { canvas.selectedTailStyle = "none"; updateConnectorStyleUI() }
@@ -1103,11 +1324,10 @@ class MainActivity : AppCompatActivity() {
         btnConnectLayer.setOnClickListener {
             canvas.isArrowForeground = !canvas.isArrowForeground
             updateConnectorLayerUI()
-            Toast.makeText(
-                this,
+            showThemedToast(
                 if (canvas.isArrowForeground) "Arrow Layer: Over Cards (Foreground)" else "Arrow Layer: Behind Cards (Background)",
-                Toast.LENGTH_SHORT
-            ).show()
+                R.drawable.ic_tool_connect
+            )
         }
 
         val connColors = listOf(
@@ -1123,7 +1343,7 @@ class MainActivity : AppCompatActivity() {
             layoutConnectSwatches.addView(createSwatchView(color) { c ->
                 currentConnectorColor = c
                 canvas.defaultConnectorColor = c
-                Toast.makeText(this, "Connector color changed", Toast.LENGTH_SHORT).show()
+                showThemedToast("Connector color changed", R.drawable.ic_tool_connect)
             })
         }
     }
@@ -1336,6 +1556,46 @@ class MainActivity : AppCompatActivity() {
         val meta = boardManager.getActiveMeta()
         tvCurrentBoardName.text = meta.name
         btnNavBack.visibility = if (boardManager.canNavigateBack()) View.VISIBLE else View.GONE
+        updateBreadcrumbsDisplay()
+    }
+
+    private fun updateBreadcrumbsDisplay() {
+        val meta = boardManager.getActiveMeta()
+        val breadcrumbs = boardManager.getBreadcrumbs(meta.id)
+        if (breadcrumbs.size > 1) {
+            btnBreadcrumbs.visibility = View.VISIBLE
+            tvBreadcrumbs.text = breadcrumbs.joinToString(" › ") { it.name }
+        } else {
+            btnBreadcrumbs.visibility = View.GONE
+        }
+    }
+
+    private fun showBreadcrumbsDialog() {
+        val meta = boardManager.getActiveMeta()
+        val breadcrumbs = boardManager.getBreadcrumbs(meta.id)
+        if (breadcrumbs.isEmpty()) return
+
+        val builder = ThemedDialog.Builder(this, canvas.themeColors)
+            .setTitle("Board Hierarchy")
+
+        breadcrumbs.forEachIndexed { index, b ->
+            val isCurrent = (b.id == meta.id)
+            val indent = "  ".repeat(index)
+            val prefix = if (index == 0) "🏠 " else "↳ "
+            builder.addItem(
+                label = "$indent$prefix${b.name}",
+                subtitle = if (isCurrent) "Current Location" else "Jump to ${b.name}",
+                isSelected = isCurrent
+            ) {
+                if (!isCurrent) {
+                    closeCanvasSearch()
+                    saveActiveBoard()
+                    showCanvasScreen(b.id)
+                }
+            }
+        }
+        builder.setNegativeButton("Close")
+        builder.show()
     }
 
     private fun showBoardSwitcherDialog() {
@@ -1353,6 +1613,7 @@ class MainActivity : AppCompatActivity() {
                 isSelected = isCurrent
             ) {
                 if (!isCurrent) {
+                    closeCanvasSearch()
                     showCanvasScreen(b.id)
                 }
             }
@@ -1911,13 +2172,16 @@ class MainActivity : AppCompatActivity() {
             .addItem("Reset Zoom (100%)", subtitle = "Return to standard 1.0x view scale") {
                 canvas.resetZoom()
             }
+            .addItem("Board Theme", subtitle = getActiveSubThemeName()) {
+                showBoardSubThemePickerDialog()
+            }
             .addItem("Canvas Grid", subtitle = appSettings.gridStyle.displayName) {
                 showGridStylePickerDialog()
             }
             .addItem("Grid Snapping: ${if (canvas.gridSnap) "ON" else "OFF"}", subtitle = if (canvas.gridSnap) "Cards magnetically snap to 32dp dot grid" else "Freeform smooth card placement") {
                 appSettings.gridSnap = !appSettings.gridSnap
                 canvas.gridSnap = appSettings.gridSnap
-                Toast.makeText(this, "Grid Snapping: ${if (canvas.gridSnap) "ON" else "OFF"}", Toast.LENGTH_SHORT).show()
+                showThemedToast("Grid Snapping: ${if (canvas.gridSnap) "ON" else "OFF"}")
             }
             .addItem("Switch Board", subtitle = "Browse or jump to another board") {
                 showBoardSwitcherDialog()
@@ -1927,10 +2191,10 @@ class MainActivity : AppCompatActivity() {
                     .setTitle("Clear Board")
                     .setMessage("Are you sure you want to clear all cards, connectors, and drawings on this board?")
                     .setPositiveButton("Clear All") {
-                        canvas.clearAll()
-                        undoRedoManager.clear()
+                        canvas.clearAll(recordUndo = true)
                         saveActiveBoard()
                         minimapView.invalidate()
+                        showThemedToast("Board cleared — tap Undo to restore")
                     }
                     .setNegativeButton("Cancel")
                     .show()
@@ -1939,11 +2203,82 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    private fun getActiveSubThemeName(): String {
+        val meta = boardManager.getActiveMeta()
+        val subTheme = BoardSubTheme.findById(meta.subThemeId)
+        return if (subTheme != null) {
+            val mode = if (meta.subThemeIsDark == true) "Dark" else "Light"
+            "${subTheme.name} ($mode)"
+        } else {
+            "Default (${appSettings.theme.displayName})"
+        }
+    }
+
+    private fun showBoardSubThemePickerDialog() {
+        val meta = boardManager.getActiveMeta()
+        val currentSubThemeId = meta.subThemeId
+        val currentIsDark = meta.subThemeIsDark ?: false
+
+        val builder = ThemedDialog.Builder(this, canvas.themeColors)
+            .setTitle("Board Theme Palette")
+            .setMessage("Select a palette specific to this board:")
+
+        builder.addItem(
+            label = "Reset to Default App Theme",
+            subtitle = "Follows global theme (${appSettings.theme.displayName})",
+            isSelected = (currentSubThemeId == null)
+        ) {
+            applyBoardSubTheme(null, null)
+        }
+
+        BoardSubTheme.ALL.forEach { theme ->
+            val isSelectedLight = (theme.id == currentSubThemeId && !currentIsDark)
+            val isSelectedDark = (theme.id == currentSubThemeId && currentIsDark)
+
+            builder.addItem(
+                label = "${theme.name} — Light Mode",
+                subtitle = "Crisp light palette with ${theme.name} accents",
+                isSelected = isSelectedLight
+            ) {
+                applyBoardSubTheme(theme.id, false)
+            }
+
+            builder.addItem(
+                label = "${theme.name} — Dark Mode",
+                subtitle = "Deep dark palette with ${theme.name} accents",
+                isSelected = isSelectedDark
+            ) {
+                applyBoardSubTheme(theme.id, true)
+            }
+        }
+
+        builder.setNegativeButton("Cancel")
+        builder.show()
+    }
+
+    private fun applyBoardSubTheme(subThemeId: String?, isDark: Boolean?) {
+        val meta = boardManager.getActiveMeta()
+        meta.subThemeId = subThemeId
+        meta.subThemeIsDark = isDark
+        val currentBoard = canvas.exportBoardData(meta)
+        boardManager.saveBoard(currentBoard)
+
+        val globalColors = ThemeManager.getThemeColors(appSettings.theme)
+        val resolvedColors = BoardSubTheme.resolveThemeColors(subThemeId, isDark, globalColors)
+
+        canvas.applyTheme(resolvedColors)
+        minimapView.themeColors = resolvedColors
+        minimapView.invalidate()
+
+        applyCanvasTheme(resolvedColors)
+        showThemedToast("Theme: ${getActiveSubThemeName()}")
+    }
+
     // ==================== EXPORT: DOWNLOAD (SAF FILE PICKER) & SHARE ====================
 
     private fun showDownloadDialog() {
         if (canvas.boxCount() == 0 && canvas.bgDrawingOverlay.getAllStrokes().isEmpty() && canvas.fgDrawingOverlay.getAllStrokes().isEmpty()) {
-            Toast.makeText(this, "Add notes or sketches before downloading", Toast.LENGTH_SHORT).show()
+            showThemedToast("Add notes or sketches before downloading", R.drawable.ic_download)
             return
         }
 
@@ -1970,7 +2305,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun showShareDialog() {
         if (canvas.boxCount() == 0 && canvas.bgDrawingOverlay.getAllStrokes().isEmpty() && canvas.fgDrawingOverlay.getAllStrokes().isEmpty()) {
-            Toast.makeText(this, "Add notes or sketches before sharing", Toast.LENGTH_SHORT).show()
+            showThemedToast("Add notes or sketches before sharing", R.drawable.ic_share)
             return
         }
 
@@ -1996,33 +2331,33 @@ class MainActivity : AppCompatActivity() {
         try {
             val out = contentResolver.openOutputStream(uri)
             if (out == null) {
-                Toast.makeText(this, "Could not open selected destination for writing", Toast.LENGTH_SHORT).show()
+                showThemedToast("Could not open selected destination for writing")
                 return
             }
             when (type) {
                 "pdf" -> {
                     val bitmap = getRenderedBitmap() ?: return
                     val ok = ExportManager.writePdfToStream(bitmap, out)
-                    if (ok) Toast.makeText(this, "PDF saved successfully!", Toast.LENGTH_LONG).show()
-                    else Toast.makeText(this, "Failed to write PDF", Toast.LENGTH_SHORT).show()
+                    if (ok) showThemedToast("PDF saved successfully!", R.drawable.ic_download)
+                    else showThemedToast("Failed to write PDF")
                 }
                 "png" -> {
                     val bitmap = getRenderedBitmap() ?: return
                     val ok = ExportManager.writePngToStream(bitmap, out)
-                    if (ok) Toast.makeText(this, "PNG image saved successfully!", Toast.LENGTH_LONG).show()
-                    else Toast.makeText(this, "Failed to write PNG", Toast.LENGTH_SHORT).show()
+                    if (ok) showThemedToast("PNG image saved successfully!", R.drawable.ic_download)
+                    else showThemedToast("Failed to write PNG")
                 }
                 "project" -> {
                     val currentMeta = boardManager.getActiveMeta()
                     val boardData = canvas.exportBoardData(currentMeta)
                     val ok = ExportManager.writeProjectToStream(boardData, out)
-                    if (ok) Toast.makeText(this, "Project archive saved successfully!", Toast.LENGTH_LONG).show()
-                    else Toast.makeText(this, "Failed to write project", Toast.LENGTH_SHORT).show()
+                    if (ok) showThemedToast("Project archive saved successfully!", R.drawable.ic_download)
+                    else showThemedToast("Failed to write project")
                 }
             }
         } catch (e: Exception) {
             e.printStackTrace()
-            Toast.makeText(this, "Error saving: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+            showThemedToast("Error saving: ${e.localizedMessage}")
         }
     }
 
@@ -2030,7 +2365,7 @@ class MainActivity : AppCompatActivity() {
         val bitmap = getRenderedBitmap() ?: return
         val uri = if (asPdf) ExportManager.savePdf(this, bitmap) else ExportManager.savePng(this, bitmap)
         if (uri == null) {
-            Toast.makeText(this, "Export failed", Toast.LENGTH_SHORT).show()
+            showThemedToast("Export failed")
             return
         }
         ExportManager.shareUri(this, uri, if (asPdf) "application/pdf" else "image/png")
@@ -2041,10 +2376,10 @@ class MainActivity : AppCompatActivity() {
         val boardData = canvas.exportBoardData(currentMeta)
         val exported = ExportManager.exportProjectFile(this, boardData)
         if (exported != null) {
-            Toast.makeText(this, "Project archive created: ${exported.first.name}", Toast.LENGTH_SHORT).show()
-            ExportManager.shareUri(this, exported.second, "application/json")
+            showThemedToast("Project archive created: ${exported.first.name}", R.drawable.ic_download)
+            ExportManager.shareUri(this, exported.second, "application/octet-stream")
         } else {
-            Toast.makeText(this, "Failed to export project", Toast.LENGTH_SHORT).show()
+            showThemedToast("Failed to export project")
         }
     }
 
@@ -2056,7 +2391,7 @@ class MainActivity : AppCompatActivity() {
 
         val bitmap: Bitmap? = ExportManager.renderBitmap(boxes, connectors, bgStrokes, fgStrokes, canvas.themeColors)
         if (bitmap == null) {
-            Toast.makeText(this, "Nothing to export", Toast.LENGTH_SHORT).show()
+            showThemedToast("Nothing to export")
         }
         return bitmap
     }

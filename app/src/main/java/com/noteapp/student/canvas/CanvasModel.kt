@@ -19,7 +19,9 @@ data class TableData(
     var cols: Int = 3,
     var rowHeaders: TableIndexStyle = TableIndexStyle.NUMBERS,
     var colHeaders: TableIndexStyle = TableIndexStyle.LETTERS,
-    var cells: MutableList<MutableList<String>> = mutableListOf()
+    var cells: MutableList<MutableList<String>> = mutableListOf(),
+    var customColLabels: MutableList<String> = mutableListOf(),
+    var customRowLabels: MutableList<String> = mutableListOf()
 ) {
     fun copyDeep(): TableData {
         return TableData(
@@ -27,7 +29,9 @@ data class TableData(
             cols = cols,
             rowHeaders = rowHeaders,
             colHeaders = colHeaders,
-            cells = cells.map { it.toMutableList() }.toMutableList()
+            cells = cells.map { it.toMutableList() }.toMutableList(),
+            customColLabels = customColLabels.toMutableList(),
+            customRowLabels = customRowLabels.toMutableList()
         )
     }
 }
@@ -122,7 +126,9 @@ data class BoardMeta(
     var name: String = "Main Board",
     var createdAt: Long = System.currentTimeMillis(),
     var updatedAt: Long = System.currentTimeMillis(),
-    var parentId: String? = null
+    var parentId: String? = null,
+    var subThemeId: String? = null,
+    var subThemeIsDark: Boolean? = null
 )
 
 /**

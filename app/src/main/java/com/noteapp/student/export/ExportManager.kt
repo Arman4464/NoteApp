@@ -18,8 +18,12 @@ import com.noteapp.student.canvas.ConnectorOverlayView
 import com.noteapp.student.canvas.DrawingStrokeData
 import com.noteapp.student.canvas.NoteBoxView
 import com.noteapp.student.settings.ThemeColors
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
+import java.util.zip.ZipOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -340,8 +344,10 @@ object ExportManager {
         dir.mkdirs()
         val safeName = board.meta.name.replace(Regex("[^a-zA-Z0-9_]"), "_").take(24).ifBlank { "board" }
         val file = File(dir, "${safeName}_${System.currentTimeMillis()}.noteapp")
-        val json = CanvasSerializer.serializeBoard(board)
-        file.writeText(json)
+        val success = FileOutputStream(file).use { out ->
+            writeProjectToStream(board, out)
+        }
+        if (!success) return null
         val uri = FileProvider.getUriForFile(context, context.packageName + ".fileprovider", file)
         return Pair(file, uri)
     }
@@ -376,10 +382,42 @@ object ExportManager {
 
     fun writeProjectToStream(board: BoardData, outputStream: java.io.OutputStream): Boolean {
         return try {
-            val json = CanvasSerializer.serializeBoard(board)
-            outputStream.use { out ->
-                out.write(json.toByteArray(Charsets.UTF_8))
+            val zipOut = ZipOutputStream(outputStream)
+            val imageMap = mutableMapOf<String, String>() // localPath -> zipEntryName
+            var imgIndex = 1
+
+            for (b in board.boxes) {
+                val path = b.imagePath
+                if (!path.isNullOrBlank() && !imageMap.containsKey(path)) {
+                    val file = File(path)
+                    if (file.exists() && file.isFile) {
+                        val ext = file.extension.ifBlank { "png" }
+                        val entryName = "images/img_${imgIndex++}.$ext"
+                        imageMap[path] = entryName
+                        zipOut.putNextEntry(ZipEntry(entryName))
+                        file.inputStream().use { input -> input.copyTo(zipOut) }
+                        zipOut.closeEntry()
+                    }
+                }
             }
+
+            // Remap box image paths to zip-relative paths
+            val mappedBoxes = if (imageMap.isNotEmpty()) {
+                board.boxes.map { b ->
+                    val relativePath = imageMap[b.imagePath]
+                    if (relativePath != null) b.copy(imagePath = relativePath) else b
+                }.toMutableList()
+            } else {
+                board.boxes
+            }
+            val mappedBoard = board.copy(boxes = mappedBoxes)
+            val json = CanvasSerializer.serializeBoard(mappedBoard)
+
+            zipOut.putNextEntry(ZipEntry("board.json"))
+            zipOut.write(json.toByteArray(Charsets.UTF_8))
+            zipOut.closeEntry()
+
+            zipOut.finish()
             true
         } catch (e: Exception) {
             e.printStackTrace()
@@ -389,10 +427,53 @@ object ExportManager {
 
     fun importProjectFile(context: Context, uri: Uri): BoardData? {
         return try {
-            val json = context.contentResolver.openInputStream(uri)?.use { stream ->
-                stream.bufferedReader().readText()
+            val bytes = context.contentResolver.openInputStream(uri)?.use { stream ->
+                stream.readBytes()
             } ?: return null
-            CanvasSerializer.deserializeBoard(json)
+
+            // Check if zip archive (magic bytes 0x50, 0x4B)
+            val isZip = bytes.size >= 2 && bytes[0] == 0x50.toByte() && bytes[1] == 0x4B.toByte()
+
+            if (isZip) {
+                var boardJson: String? = null
+                val extractedImages = mutableMapOf<String, String>() // zipEntryName -> localFilePath
+                val imagesDir = File(context.filesDir, "images").apply { if (!exists()) mkdirs() }
+
+                val zipIn = ZipInputStream(ByteArrayInputStream(bytes))
+                var entry = zipIn.nextEntry
+                while (entry != null) {
+                    val name = entry.name
+                    if (name == "board.json" || name.endsWith("/board.json")) {
+                        boardJson = zipIn.bufferedReader(Charsets.UTF_8).readText()
+                    } else if (name.startsWith("images/") && !entry.isDirectory) {
+                        val fileName = name.substringAfterLast("/")
+                        val destFile = File(imagesDir, "imported_${System.currentTimeMillis()}_$fileName")
+                        FileOutputStream(destFile).use { out ->
+                            zipIn.copyTo(out)
+                        }
+                        extractedImages[name] = destFile.absolutePath
+                    }
+                    zipIn.closeEntry()
+                    entry = zipIn.nextEntry
+                }
+                zipIn.close()
+
+                if (boardJson == null) return null
+                val deserialized = CanvasSerializer.deserializeBoard(boardJson)
+                if (extractedImages.isEmpty()) {
+                    deserialized
+                } else {
+                    val remappedBoxes = deserialized.boxes.map { b ->
+                        val local = extractedImages[b.imagePath]
+                        if (local != null) b.copy(imagePath = local) else b
+                    }.toMutableList()
+                    deserialized.copy(boxes = remappedBoxes)
+                }
+            } else {
+                // Plain JSON legacy .noteapp file
+                val json = String(bytes, Charsets.UTF_8)
+                CanvasSerializer.deserializeBoard(json)
+            }
         } catch (e: Exception) {
             e.printStackTrace()
             null

@@ -243,6 +243,33 @@
                 android:visibility="gone"
                 app:tint="#4F46E5" />
 
+            <!-- Breadcrumb Navigation Button on Ceiling -->
+            <LinearLayout
+                android:id="@+id/btnBreadcrumbs"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="4dp"
+                android:paddingTop="4dp"
+                android:paddingEnd="4dp"
+                android:paddingBottom="4dp">
+
+                <TextView
+                    android:id="@+id/tvBreadcrumbs"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="middle"
+                    android:maxLines="1"
+                    android:text="Main"
+                    android:textColor="#4F46E5"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
             <!-- Board Selector Pill Button -->
             <LinearLayout
                 android:id="@+id/btnBoardSelector"
@@ -254,9 +281,9 @@
                 android:focusable="true"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
-                android:paddingStart="6dp"
+                android:paddingStart="4dp"
                 android:paddingTop="4dp"
-                android:paddingEnd="6dp"
+                android:paddingEnd="4dp"
                 android:paddingBottom="4dp">
 
                 <TextView
@@ -267,17 +294,27 @@
                     android:maxLines="1"
                     android:text="Main Board"
                     android:textColor="#0F172A"
-                    android:textSize="15sp"
+                    android:textSize="14sp"
                     android:textStyle="bold" />
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="4dp"
+                    android:layout_marginStart="3dp"
                     android:text="▾"
                     android:textColor="#64748B"
-                    android:textSize="13sp" />
+                    android:textSize="12sp" />
             </LinearLayout>
+
+            <!-- Canvas Search & Jump Button on Ceiling -->
+            <ImageButton
+                android:id="@+id/btnCanvasSearch"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Search canvas"
+                android:src="@drawable/ic_search"
+                app:tint="#4F46E5" />
 
             <!-- Minimap HUD Button -->
             <ImageButton
@@ -359,6 +396,119 @@
                 android:src="@drawable/ic_collapse_up"
                 app:tint="#94A3B8" />
 
+        </LinearLayout>
+
+        <!-- Canvas Find & Jump Search Bar on Ceiling -->
+        <LinearLayout
+            android:id="@+id/searchBarContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top"
+            android:layout_marginStart="16dp"
+            android:layout_marginTop="50dp"
+            android:layout_marginEnd="16dp"
+            android:background="@drawable/bg_top_bar"
+            android:elevation="12dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="12dp"
+            android:paddingTop="6dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="6dp"
+            android:visibility="gone">
+
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:src="@drawable/ic_search"
+                app:tint="#4F46E5" />
+
+            <EditText
+                android:id="@+id/etCanvasSearch"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:background="@null"
+                android:hint="Find on canvas..."
+                android:imeOptions="actionSearch"
+                android:singleLine="true"
+                android:textColor="#0F172A"
+                android:textColorHint="#94A3B8"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/tvCanvasSearchCount"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="6dp"
+                android:text=""
+                android:textColor="#64748B"
+                android:textSize="12sp" />
+
+            <ImageButton
+                android:id="@+id/btnSearchPrev"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Previous match"
+                android:src="@drawable/ic_collapse_up"
+                app:tint="#475569" />
+
+            <ImageButton
+                android:id="@+id/btnSearchNext"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Next match"
+                android:src="@drawable/ic_expand_down"
+                app:tint="#475569" />
+
+            <ImageButton
+                android:id="@+id/btnSearchClose"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Close search"
+                android:src="@drawable/ic_close"
+                app:tint="#94A3B8" />
+        </LinearLayout>
+
+        <!-- Themed Top HUD Notification Pill -->
+        <LinearLayout
+            android:id="@+id/hudNotificationBar"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|center_horizontal"
+            android:layout_marginTop="52dp"
+            android:background="@drawable/bg_selection_bar"
+            android:elevation="16dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:paddingTop="8dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="8dp"
+            android:visibility="gone">
+
+            <ImageView
+                android:id="@+id/ivHudIcon"
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:src="@drawable/ic_boards"
+                app:tint="#FFFFFF" />
+
+            <TextView
+                android:id="@+id/tvHudMessage"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:maxLines="1"
+                android:singleLine="true"
+                android:text="Action Completed"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp"
+                android:textStyle="bold" />
         </LinearLayout>
 
         <!-- Ceiling-Attached Expand Top Bar Pill (▼) -->

@@ -274,81 +274,159 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
                         onBoxMoved?.invoke(dx, dy)
                     }
                     HANDLE_TOP_LEFT -> {
-                        val newW = box.data.width - dx
-                        val newH = box.data.height - dy
-                        if (newW >= MIN_WIDTH) {
-                            box.data.x += dx
+                        if (box.data.kind == BoxKind.IMAGE) {
+                            val aspect = initialWidth / initialHeight.coerceAtLeast(0.01f)
+                            val newW = max(box.data.width - dx, MIN_HEIGHT * aspect)
+                            val newH = newW / aspect
+                            box.data.x += (box.data.width - newW)
+                            box.data.y += (box.data.height - newH)
                             box.data.width = newW
-                        }
-                        if (newH >= MIN_HEIGHT) {
-                            box.data.y += dy
                             box.data.height = newH
+                            applyBoxBounds(box)
+                        } else {
+                            val newW = box.data.width - dx
+                            val newH = box.data.height - dy
+                            if (newW >= MIN_WIDTH) {
+                                box.data.x += dx
+                                box.data.width = newW
+                            }
+                            if (newH >= MIN_HEIGHT) {
+                                box.data.y += dy
+                                box.data.height = newH
+                            }
+                            applyBoxBounds(box)
                         }
-                        applyBoxBounds(box)
                     }
                     HANDLE_TOP_CENTER -> {
-                        val newH = box.data.height - dy
-                        if (newH >= MIN_HEIGHT) {
-                            box.data.y += dy
+                        if (box.data.kind == BoxKind.IMAGE) {
+                            val aspect = initialWidth / initialHeight.coerceAtLeast(0.01f)
+                            val newH = max(box.data.height - dy, MIN_HEIGHT)
+                            val newW = newH * aspect
+                            box.data.y += (box.data.height - newH)
+                            box.data.width = newW
                             box.data.height = newH
+                            applyBoxBounds(box)
+                        } else {
+                            val newH = box.data.height - dy
+                            if (newH >= MIN_HEIGHT) {
+                                box.data.y += dy
+                                box.data.height = newH
+                            }
+                            applyBoxBounds(box)
                         }
-                        applyBoxBounds(box)
                     }
                     HANDLE_TOP_RIGHT -> {
-                        val newW = box.data.width + dx
-                        val newH = box.data.height - dy
-                        if (newW >= MIN_WIDTH) {
+                        if (box.data.kind == BoxKind.IMAGE) {
+                            val aspect = initialWidth / initialHeight.coerceAtLeast(0.01f)
+                            val newW = max(box.data.width + dx, MIN_HEIGHT * aspect)
+                            val newH = newW / aspect
+                            box.data.y += (box.data.height - newH)
                             box.data.width = newW
-                        }
-                        if (newH >= MIN_HEIGHT) {
-                            box.data.y += dy
                             box.data.height = newH
+                            applyBoxBounds(box)
+                        } else {
+                            val newW = box.data.width + dx
+                            val newH = box.data.height - dy
+                            if (newW >= MIN_WIDTH) {
+                                box.data.width = newW
+                            }
+                            if (newH >= MIN_HEIGHT) {
+                                box.data.y += dy
+                                box.data.height = newH
+                            }
+                            applyBoxBounds(box)
                         }
-                        applyBoxBounds(box)
                     }
                     HANDLE_RIGHT_CENTER -> {
-                        val newW = box.data.width + dx
-                        if (newW >= MIN_WIDTH) {
+                        if (box.data.kind == BoxKind.IMAGE) {
+                            val aspect = initialWidth / initialHeight.coerceAtLeast(0.01f)
+                            val newW = max(box.data.width + dx, MIN_WIDTH)
+                            val newH = newW / aspect
                             box.data.width = newW
+                            box.data.height = newH
+                            applyBoxBounds(box)
+                        } else {
+                            val newW = box.data.width + dx
+                            if (newW >= MIN_WIDTH) {
+                                box.data.width = newW
+                            }
+                            applyBoxBounds(box)
                         }
-                        applyBoxBounds(box)
                     }
                     HANDLE_BOTTOM_RIGHT -> {
-                        val newW = box.data.width + dx
-                        val newH = box.data.height + dy
-                        if (newW >= MIN_WIDTH) {
+                        if (box.data.kind == BoxKind.IMAGE) {
+                            val aspect = initialWidth / initialHeight.coerceAtLeast(0.01f)
+                            val newW = max(box.data.width + dx, MIN_HEIGHT * aspect)
+                            val newH = newW / aspect
                             box.data.width = newW
-                        }
-                        if (newH >= MIN_HEIGHT) {
                             box.data.height = newH
+                            applyBoxBounds(box)
+                        } else {
+                            val newW = box.data.width + dx
+                            val newH = box.data.height + dy
+                            if (newW >= MIN_WIDTH) {
+                                box.data.width = newW
+                            }
+                            if (newH >= MIN_HEIGHT) {
+                                box.data.height = newH
+                            }
+                            applyBoxBounds(box)
                         }
-                        applyBoxBounds(box)
                     }
                     HANDLE_BOTTOM_CENTER -> {
-                        val newH = box.data.height + dy
-                        if (newH >= MIN_HEIGHT) {
+                        if (box.data.kind == BoxKind.IMAGE) {
+                            val aspect = initialWidth / initialHeight.coerceAtLeast(0.01f)
+                            val newH = max(box.data.height + dy, MIN_HEIGHT)
+                            val newW = newH * aspect
+                            box.data.width = newW
                             box.data.height = newH
+                            applyBoxBounds(box)
+                        } else {
+                            val newH = box.data.height + dy
+                            if (newH >= MIN_HEIGHT) {
+                                box.data.height = newH
+                            }
+                            applyBoxBounds(box)
                         }
-                        applyBoxBounds(box)
                     }
                     HANDLE_BOTTOM_LEFT -> {
-                        val newW = box.data.width - dx
-                        val newH = box.data.height + dy
-                        if (newW >= MIN_WIDTH) {
+                        if (box.data.kind == BoxKind.IMAGE) {
+                            val aspect = initialWidth / initialHeight.coerceAtLeast(0.01f)
+                            val newW = max(box.data.width - dx, MIN_HEIGHT * aspect)
+                            val newH = newW / aspect
+                            box.data.x += (box.data.width - newW)
                             box.data.width = newW
-                        }
-                        if (newH >= MIN_HEIGHT) {
                             box.data.height = newH
+                            applyBoxBounds(box)
+                        } else {
+                            val newW = box.data.width - dx
+                            val newH = box.data.height + dy
+                            if (newW >= MIN_WIDTH) {
+                                box.data.width = newW
+                            }
+                            if (newH >= MIN_HEIGHT) {
+                                box.data.height = newH
+                            }
+                            applyBoxBounds(box)
                         }
-                        applyBoxBounds(box)
                     }
                     HANDLE_LEFT_CENTER -> {
-                        val newW = box.data.width - dx
-                        if (newW >= MIN_WIDTH) {
-                            box.data.x += dx
+                        if (box.data.kind == BoxKind.IMAGE) {
+                            val aspect = initialWidth / initialHeight.coerceAtLeast(0.01f)
+                            val newW = max(box.data.width - dx, MIN_WIDTH)
+                            val newH = newW / aspect
+                            box.data.x += (box.data.width - newW)
                             box.data.width = newW
+                            box.data.height = newH
+                            applyBoxBounds(box)
+                        } else {
+                            val newW = box.data.width - dx
+                            if (newW >= MIN_WIDTH) {
+                                box.data.x += dx
+                                box.data.width = newW
+                            }
+                            applyBoxBounds(box)
                         }
-                        applyBoxBounds(box)
                     }
                 }
 

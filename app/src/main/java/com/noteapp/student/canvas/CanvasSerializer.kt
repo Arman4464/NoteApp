@@ -20,6 +20,8 @@ object CanvasSerializer {
             put("createdAt", board.meta.createdAt)
             put("updatedAt", board.meta.updatedAt)
             put("parentId", board.meta.parentId)
+            put("subThemeId", board.meta.subThemeId)
+            put("subThemeIsDark", board.meta.subThemeIsDark)
         }
         root.put("meta", metaObj)
 
@@ -63,6 +65,32 @@ object CanvasSerializer {
                 itemsArray.put(io)
             }
             o.put("checklist", itemsArray)
+
+            b.tableData?.let { td ->
+                val tdo = JSONObject()
+                tdo.put("rows", td.rows)
+                tdo.put("cols", td.cols)
+                tdo.put("rowHeaders", td.rowHeaders.name)
+                tdo.put("colHeaders", td.colHeaders.name)
+
+                val customColArr = JSONArray()
+                for (lbl in td.customColLabels) customColArr.put(lbl)
+                tdo.put("customColLabels", customColArr)
+
+                val customRowArr = JSONArray()
+                for (lbl in td.customRowLabels) customRowArr.put(lbl)
+                tdo.put("customRowLabels", customRowArr)
+
+                val cellsArr = JSONArray()
+                for (row in td.cells) {
+                    val rArr = JSONArray()
+                    for (cell in row) rArr.put(cell)
+                    cellsArr.put(rArr)
+                }
+                tdo.put("cells", cellsArr)
+                o.put("tableData", tdo)
+            }
+
             boxArray.put(o)
         }
         root.put("boxes", boxArray)
@@ -74,8 +102,16 @@ object CanvasSerializer {
             o.put("id", c.id)
             o.put("fromId", c.fromId)
             o.put("toId", c.toId)
+            o.put("startX", c.startX.toDouble())
+            o.put("startY", c.startY.toDouble())
+            o.put("endX", c.endX.toDouble())
+            o.put("endY", c.endY.toDouble())
             o.put("color", c.color)
+            o.put("strokeWidth", c.strokeWidth.toDouble())
             o.put("style", c.style)
+            o.put("headStyle", c.headStyle)
+            o.put("tailStyle", c.tailStyle)
+            o.put("isForeground", c.isForeground)
             connArray.put(o)
         }
         root.put("connectors", connArray)
@@ -133,7 +169,9 @@ object CanvasSerializer {
                 name = mo.optString("name", defaultBoardName),
                 createdAt = mo.optLong("createdAt", System.currentTimeMillis()),
                 updatedAt = mo.optLong("updatedAt", System.currentTimeMillis()),
-                parentId = if (mo.has("parentId") && !mo.isNull("parentId")) mo.getString("parentId") else null
+                parentId = if (mo.has("parentId") && !mo.isNull("parentId")) mo.getString("parentId") else null,
+                subThemeId = if (mo.has("subThemeId") && !mo.isNull("subThemeId")) mo.getString("subThemeId") else null,
+                subThemeIsDark = if (mo.has("subThemeIsDark") && !mo.isNull("subThemeIsDark")) mo.getBoolean("subThemeIsDark") else null
             )
         } else {
             BoardMeta(id = defaultBoardId, name = defaultBoardName)
@@ -177,6 +215,48 @@ object CanvasSerializer {
                 BoxKind.TEXT
             }
 
+            val tableData = if (o.has("tableData") && !o.isNull("tableData")) {
+                val tdo = o.getJSONObject("tableData")
+                val rows = tdo.optInt("rows", 3)
+                val cols = tdo.optInt("cols", 3)
+                val rowHeaders = try {
+                    TableIndexStyle.valueOf(tdo.optString("rowHeaders", "NUMBERS"))
+                } catch (e: Exception) {
+                    TableIndexStyle.NUMBERS
+                }
+                val colHeaders = try {
+                    TableIndexStyle.valueOf(tdo.optString("colHeaders", "LETTERS"))
+                } catch (e: Exception) {
+                    TableIndexStyle.LETTERS
+                }
+                val customColLabels = mutableListOf<String>()
+                tdo.optJSONArray("customColLabels")?.let { arr ->
+                    for (k in 0 until arr.length()) customColLabels.add(arr.getString(k))
+                }
+                val customRowLabels = mutableListOf<String>()
+                tdo.optJSONArray("customRowLabels")?.let { arr ->
+                    for (k in 0 until arr.length()) customRowLabels.add(arr.getString(k))
+                }
+                val cells = mutableListOf<MutableList<String>>()
+                tdo.optJSONArray("cells")?.let { arr ->
+                    for (r in 0 until arr.length()) {
+                        val rArr = arr.getJSONArray(r)
+                        val row = mutableListOf<String>()
+                        for (c in 0 until rArr.length()) row.add(rArr.getString(c))
+                        cells.add(row)
+                    }
+                }
+                TableData(
+                    rows = rows,
+                    cols = cols,
+                    rowHeaders = rowHeaders,
+                    colHeaders = colHeaders,
+                    cells = cells,
+                    customColLabels = customColLabels,
+                    customRowLabels = customRowLabels
+                )
+            } else null
+
             boxes.add(
                 NoteBoxData(
                     id = o.getString("id"),
@@ -200,6 +280,7 @@ object CanvasSerializer {
                     italic = o.optBoolean("italic", false),
                     imagePath = imagePath,
                     checklist = checklist,
+                    tableData = tableData,
                     zIndex = o.optInt("zIndex", 0)
                 )
             )
@@ -212,10 +293,18 @@ object CanvasSerializer {
             connectors.add(
                 ConnectorData(
                     id = o.getString("id"),
-                    fromId = o.getString("fromId"),
-                    toId = o.getString("toId"),
+                    fromId = o.optString("fromId", ""),
+                    toId = o.optString("toId", ""),
+                    startX = o.optDouble("startX", 0.0).toFloat(),
+                    startY = o.optDouble("startY", 0.0).toFloat(),
+                    endX = o.optDouble("endX", 0.0).toFloat(),
+                    endY = o.optDouble("endY", 0.0).toFloat(),
                     color = o.optInt("color", Color.parseColor("#6366F1")),
-                    style = o.optString("style", "arrow")
+                    strokeWidth = o.optDouble("strokeWidth", 5.0).toFloat(),
+                    style = o.optString("style", "arrow"),
+                    headStyle = o.optString("headStyle", "triangle"),
+                    tailStyle = o.optString("tailStyle", "none"),
+                    isForeground = o.optBoolean("isForeground", false)
                 )
             )
         }

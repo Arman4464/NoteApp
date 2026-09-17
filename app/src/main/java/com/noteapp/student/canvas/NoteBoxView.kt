@@ -3,13 +3,16 @@ package com.noteapp.student.canvas
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.text.Editable
 import android.text.TextWatcher
 import android.text.method.ScrollingMovementMethod
+import android.view.GestureDetector
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -63,9 +66,25 @@ class NoteBoxView(
     private val contentContainer: View
     private lateinit var checklistContainer: LinearLayout
     private lateinit var tableContainer: LinearLayout
+    private var tableControlsLayout: View? = null
 
     private var isSelectedState = false
     private var savedHint: CharSequence? = null
+
+    // Text editing state (double tap to edit, single tap to drag/select)
+    private var isTextEditingMode = false
+    private var activeEditText: EditText? = null
+
+    var onColorChanged: ((box: NoteBoxView, oldColor: Int, newColor: Int) -> Unit)? = null
+
+    // Geometric vector shape rendering
+    private val shapeFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+    }
+    private val shapeStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+    }
+    private val shapePath = Path()
 
     // Touch drag state when card is selected
     private var touchStartX = 0f
@@ -89,6 +108,7 @@ class NoteBoxView(
         }
 
     init {
+        setWillNotDraw(false)
         updateBackgroundShape()
         clipToPadding = false
         elevation = 8f
@@ -116,7 +136,7 @@ class NoteBoxView(
     }
 
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
-        if (isSelectedState) {
+        if (!isTextEditingMode) {
             when (ev.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     touchStartX = ev.rawX
@@ -127,20 +147,13 @@ class NoteBoxView(
                     val dx = Math.abs(ev.rawX - touchStartX)
                     val dy = Math.abs(ev.rawY - touchStartY)
                     val density = resources.displayMetrics.density
-                    if (hypot(dx.toDouble(), dy.toDouble()) > 14 * density) {
-                        val focused = findFocus()
-                        val isInsideFocused = if (focused is EditText) {
-                            val loc = IntArray(2)
-                            focused.getLocationOnScreen(loc)
-                            ev.rawX >= loc[0] && ev.rawX <= loc[0] + focused.width &&
-                            ev.rawY >= loc[1] && ev.rawY <= loc[1] + focused.height
-                        } else false
-
-                        if (!isInsideFocused) {
-                            isDraggingSelf = true
-                            parent?.requestDisallowInterceptTouchEvent(true)
-                            return true
+                    if (hypot(dx.toDouble(), dy.toDouble()) > 8 * density) {
+                        if (!isSelectedState) {
+                            onBoxTapped(this)
                         }
+                        isDraggingSelf = true
+                        parent?.requestDisallowInterceptTouchEvent(true)
+                        return true
                     }
                 }
             }
@@ -149,26 +162,48 @@ class NoteBoxView(
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (isSelectedState) {
+        if (!isTextEditingMode) {
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     touchStartX = event.rawX
                     touchStartY = event.rawY
-                    isDraggingSelf = true
-                    parent?.requestDisallowInterceptTouchEvent(true)
+                    isDraggingSelf = false
                     return true
                 }
                 MotionEvent.ACTION_MOVE -> {
+                    val dx = Math.abs(event.rawX - touchStartX)
+                    val dy = Math.abs(event.rawY - touchStartY)
+                    val density = resources.displayMetrics.density
+                    if (!isDraggingSelf && hypot(dx.toDouble(), dy.toDouble()) > 8 * density) {
+                        if (!isSelectedState) {
+                            onBoxTapped(this)
+                        }
+                        isDraggingSelf = true
+                        parent?.requestDisallowInterceptTouchEvent(true)
+                    }
                     if (isDraggingSelf) {
-                        val dx = (event.rawX - touchStartX) / getScale()
-                        val dy = (event.rawY - touchStartY) / getScale()
+                        val moveDx = (event.rawX - touchStartX) / getScale()
+                        val moveDy = (event.rawY - touchStartY) / getScale()
                         touchStartX = event.rawX
                         touchStartY = event.rawY
-                        onMoved(dx, dy)
+                        onMoved(moveDx, moveDy)
                         return true
                     }
                 }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                MotionEvent.ACTION_UP -> {
+                    if (isDraggingSelf) {
+                        isDraggingSelf = false
+                        onMoveFinished()
+                        parent?.requestDisallowInterceptTouchEvent(false)
+                        return true
+                    } else {
+                        if (!isSelectedState) {
+                            onBoxTapped(this)
+                        }
+                        return true
+                    }
+                }
+                MotionEvent.ACTION_CANCEL -> {
                     if (isDraggingSelf) {
                         isDraggingSelf = false
                         onMoveFinished()
@@ -179,6 +214,34 @@ class NoteBoxView(
             }
         }
         return super.onTouchEvent(event)
+    }
+
+    fun enterTextEditing() {
+        val et = activeEditText ?: return
+        isTextEditingMode = true
+        et.isFocusable = true
+        et.isFocusableInTouchMode = true
+        et.isCursorVisible = true
+        et.requestFocus()
+        et.setSelection(et.text.length)
+        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
+        imm?.showSoftInput(et, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+        et.postDelayed({
+            et.requestFocus()
+            imm?.showSoftInput(et, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+        }, 80)
+    }
+
+    fun exitTextEditing() {
+        if (!isTextEditingMode) return
+        isTextEditingMode = false
+        val et = activeEditText ?: return
+        et.isFocusable = false
+        et.isFocusableInTouchMode = false
+        et.isCursorVisible = false
+        et.clearFocus()
+        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
+        imm?.hideSoftInputFromWindow(windowToken, 0)
     }
 
     fun resolveTextColor(): Int {
@@ -201,6 +264,12 @@ class NoteBoxView(
     }
 
     fun updateBackgroundShape() {
+        if (data.kind == BoxKind.SHAPE) {
+            background = null
+            invalidate()
+            return
+        }
+
         val isGlass = (data.kind == BoxKind.TEXT || data.kind == BoxKind.CHECKLIST || data.kind == BoxKind.TABLE)
         val density = context.resources.displayMetrics.density
         val isDark = themeColors?.isDark ?: false
@@ -214,7 +283,6 @@ class NoteBoxView(
                 val isDefaultColor = (data.boxColor == Color.WHITE || data.boxColor == Color.TRANSPARENT)
                 if (isDark) {
                     if (isDefaultColor) {
-                        // Translucent frosted glass with subtle top specular reflection
                         colors = intArrayOf(
                             Color.argb(45, 255, 255, 255),
                             Color.argb(65, 15, 23, 42)
@@ -230,7 +298,6 @@ class NoteBoxView(
                     }
                 } else {
                     if (isDefaultColor) {
-                        // Luminous see-through acrylic with specular highlight
                         colors = intArrayOf(
                             Color.argb(135, 255, 255, 255),
                             Color.argb(70, 255, 255, 255)
@@ -256,27 +323,8 @@ class NoteBoxView(
                 setStroke(strokeW, strokeCol)
             } else {
                 setColor(data.boxColor)
-                when (data.shapeType) {
-                    ShapeType.CIRCLE -> {
-                        shape = GradientDrawable.OVAL
-                    }
-                    ShapeType.STICKY_NOTE -> {
-                        shape = GradientDrawable.RECTANGLE
-                        cornerRadius = 4f * density
-                    }
-                    ShapeType.ROUNDED_RECT -> {
-                        shape = GradientDrawable.RECTANGLE
-                        cornerRadius = 16f * density
-                    }
-                    ShapeType.RECTANGLE -> {
-                        shape = GradientDrawable.RECTANGLE
-                        cornerRadius = 0f
-                    }
-                    ShapeType.DIAMOND, ShapeType.STAR, ShapeType.CLOUD, ShapeType.TRIANGLE -> {
-                        shape = GradientDrawable.RECTANGLE
-                        cornerRadius = 16f * density
-                    }
-                }
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 16f * density
                 val strokeCol = if (isSelectedState) {
                     themeColors?.accent ?: Color.parseColor("#4F46E5")
                 } else {
@@ -286,6 +334,127 @@ class NoteBoxView(
                 setStroke(strokeW, strokeCol)
             }
         }
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        if (data.kind == BoxKind.SHAPE) {
+            drawVectorShape(canvas)
+        }
+    }
+
+    private fun drawVectorShape(canvas: Canvas) {
+        val density = resources.displayMetrics.density
+        val strokeCol = if (isSelectedState) {
+            themeColors?.accent ?: Color.parseColor("#4F46E5")
+        } else {
+            data.strokeColor
+        }
+        val strokeW = if (isSelectedState) 3f * density else data.strokeWidth.coerceAtLeast(2f)
+
+        shapeFillPaint.color = data.boxColor
+        shapeStrokePaint.color = strokeCol
+        shapeStrokePaint.strokeWidth = strokeW
+
+        val w = width.toFloat()
+        val h = height.toFloat()
+        val halfW = strokeW / 2f
+
+        shapePath.reset()
+        when (data.shapeType) {
+            ShapeType.CIRCLE -> {
+                canvas.drawOval(halfW, halfW, w - halfW, h - halfW, shapeFillPaint)
+                canvas.drawOval(halfW, halfW, w - halfW, h - halfW, shapeStrokePaint)
+                return
+            }
+            ShapeType.STICKY_NOTE -> {
+                val foldSize = 20f * density
+                shapePath.moveTo(halfW + 4f * density, halfW)
+                shapePath.lineTo(w - halfW - 4f * density, halfW)
+                shapePath.quadTo(w - halfW, halfW, w - halfW, halfW + 4f * density)
+                shapePath.lineTo(w - halfW, h - halfW - foldSize)
+                shapePath.lineTo(w - halfW - foldSize, h - halfW)
+                shapePath.lineTo(halfW + 4f * density, h - halfW)
+                shapePath.quadTo(halfW, h - halfW, halfW, h - halfW - 4f * density)
+                shapePath.lineTo(halfW, halfW + 4f * density)
+                shapePath.quadTo(halfW, halfW, halfW + 4f * density, halfW)
+                shapePath.close()
+
+                canvas.drawPath(shapePath, shapeFillPaint)
+                canvas.drawPath(shapePath, shapeStrokePaint)
+
+                // Fold flap in bottom right
+                val foldPath = Path().apply {
+                    moveTo(w - halfW - foldSize, h - halfW)
+                    lineTo(w - halfW - foldSize, h - halfW - foldSize)
+                    lineTo(w - halfW, h - halfW - foldSize)
+                    close()
+                }
+                val foldPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    style = Paint.Style.FILL
+                    color = Color.argb(45, 0, 0, 0)
+                }
+                canvas.drawPath(foldPath, foldPaint)
+                canvas.drawPath(foldPath, shapeStrokePaint)
+                return
+            }
+            ShapeType.ROUNDED_RECT -> {
+                val rad = 16f * density
+                canvas.drawRoundRect(halfW, halfW, w - halfW, h - halfW, rad, rad, shapeFillPaint)
+                canvas.drawRoundRect(halfW, halfW, w - halfW, h - halfW, rad, rad, shapeStrokePaint)
+                return
+            }
+            ShapeType.RECTANGLE -> {
+                canvas.drawRect(halfW, halfW, w - halfW, h - halfW, shapeFillPaint)
+                canvas.drawRect(halfW, halfW, w - halfW, h - halfW, shapeStrokePaint)
+                return
+            }
+            ShapeType.DIAMOND -> {
+                shapePath.moveTo(w / 2f, halfW)
+                shapePath.lineTo(w - halfW, h / 2f)
+                shapePath.lineTo(w / 2f, h - halfW)
+                shapePath.lineTo(halfW, h / 2f)
+                shapePath.close()
+            }
+            ShapeType.TRIANGLE -> {
+                shapePath.moveTo(w / 2f, halfW)
+                shapePath.lineTo(w - halfW, h - halfW)
+                shapePath.lineTo(halfW, h - halfW)
+                shapePath.close()
+            }
+            ShapeType.STAR -> {
+                val cx = w / 2f
+                val cy = h / 2f
+                val outerR = kotlin.math.min(w, h) / 2f - halfW
+                val innerR = outerR * 0.45f
+                for (i in 0 until 10) {
+                    val r = if (i % 2 == 0) outerR else innerR
+                    val angle = Math.toRadians((i * 36.0 - 90.0))
+                    val px = cx + (r * Math.cos(angle)).toFloat()
+                    val py = cy + (r * Math.sin(angle)).toFloat()
+                    if (i == 0) shapePath.moveTo(px, py) else shapePath.lineTo(px, py)
+                }
+                shapePath.close()
+            }
+            ShapeType.CLOUD -> {
+                val left = halfW + 6f * density
+                val right = w - halfW - 6f * density
+                val top = halfW + 10f * density
+                val bottom = h - halfW - 10f * density
+                val cw = right - left
+                val ch = bottom - top
+
+                shapePath.moveTo(left + cw * 0.2f, bottom)
+                shapePath.lineTo(left + cw * 0.8f, bottom)
+                shapePath.cubicTo(right, bottom, right + 4f * density, top + ch * 0.6f, left + cw * 0.82f, top + ch * 0.45f)
+                shapePath.cubicTo(right, top - 4f * density, left + cw * 0.55f, top - 6f * density, left + cw * 0.5f, top + ch * 0.15f)
+                shapePath.cubicTo(left + cw * 0.4f, top - 6f * density, left + cw * 0.15f, top, left + cw * 0.2f, top + ch * 0.4f)
+                shapePath.cubicTo(left - 4f * density, top + ch * 0.55f, left - 2f * density, bottom, left + cw * 0.2f, bottom)
+                shapePath.close()
+            }
+        }
+        canvas.drawPath(shapePath, shapeFillPaint)
+        canvas.drawPath(shapePath, shapeStrokePaint)
     }
 
     // ---------- Content builders ----------
@@ -303,7 +472,11 @@ class NoteBoxView(
             setText(data.text)
             movementMethod = ScrollingMovementMethod.getInstance()
             typeface = resolveTypeface()
+            isFocusable = false
+            isFocusableInTouchMode = false
+            isCursorVisible = false
         }
+        activeEditText = et
         et.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
@@ -311,15 +484,41 @@ class NoteBoxView(
                 data.text = s?.toString() ?: ""
             }
         })
-        et.setOnFocusChangeListener { _, _ -> onTextFocusChanged() }
-        et.setOnClickListener {
-            focusTextInput()
-        }
-        et.setOnTouchListener { _, event ->
-            if (!isSelectedState && event.actionMasked == MotionEvent.ACTION_UP) {
-                onBoxTapped(this@NoteBoxView)
+        et.setOnFocusChangeListener { _, hasFocus ->
+            if (!hasFocus) {
+                isTextEditingMode = false
+                et.isFocusable = false
+                et.isFocusableInTouchMode = false
+                et.isCursorVisible = false
             }
-            false
+            onTextFocusChanged()
+        }
+
+        val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                if (!isSelectedState) {
+                    onBoxTapped(this@NoteBoxView)
+                }
+                return true
+            }
+
+            override fun onDoubleTap(e: MotionEvent): Boolean {
+                if (!isSelectedState) {
+                    onBoxTapped(this@NoteBoxView)
+                }
+                enterTextEditing()
+                return true
+            }
+        })
+
+        et.setOnTouchListener { _, event ->
+            gestureDetector.onTouchEvent(event)
+            if (!isTextEditingMode) {
+                this@NoteBoxView.onTouchEvent(event)
+                true
+            } else {
+                false
+            }
         }
         return et
     }
@@ -435,19 +634,41 @@ class NoteBoxView(
                 colHeaderRow.addView(corner)
             }
             for (c in 0 until table.cols) {
-                val colLabel = getColHeaderLabel(c, table.colHeaders)
-                val th = TextView(context).apply {
+                val colLabel = if (c < table.customColLabels.size && table.customColLabels[c].isNotEmpty()) {
+                    table.customColLabels[c]
+                } else ""
+                val defaultColLabel = getColHeaderLabel(c, table.colHeaders)
+
+                val th = EditText(context).apply {
                     layoutParams = LinearLayout.LayoutParams((84 * density).toInt(), (32 * density).toInt())
-                    text = colLabel
+                    setText(colLabel)
+                    hint = defaultColLabel
                     textSize = 12f
                     setTypeface(null, Typeface.BOLD)
                     setTextColor(headerTextColor)
+                    setHintTextColor(if (isDark) Color.parseColor("#64748B") else Color.parseColor("#94A3B8"))
                     gravity = Gravity.CENTER
+                    isSingleLine = true
                     background = GradientDrawable().apply {
                         shape = GradientDrawable.RECTANGLE
                         setColor(headerBg)
                         setStroke((1 * density).toInt(), borderColor)
                     }
+                }
+                th.addTextChangedListener(object : TextWatcher {
+                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                    override fun afterTextChanged(s: Editable?) {
+                        while (table.customColLabels.size <= c) table.customColLabels.add("")
+                        table.customColLabels[c] = s?.toString() ?: ""
+                    }
+                })
+                th.setOnFocusChangeListener { _, _ -> onTextFocusChanged() }
+                th.setOnTouchListener { _, event ->
+                    if (!isSelectedState && event.actionMasked == MotionEvent.ACTION_UP) {
+                        onBoxTapped(this@NoteBoxView)
+                    }
+                    false
                 }
                 colHeaderRow.addView(th)
             }
@@ -461,19 +682,41 @@ class NoteBoxView(
                 gravity = Gravity.CENTER_VERTICAL
             }
             if (showRowHeaders) {
-                val rowLabel = getRowHeaderLabel(r, table.rowHeaders)
-                val rh = TextView(context).apply {
+                val rowLabel = if (r < table.customRowLabels.size && table.customRowLabels[r].isNotEmpty()) {
+                    table.customRowLabels[r]
+                } else ""
+                val defaultRowLabel = getRowHeaderLabel(r, table.rowHeaders)
+
+                val rh = EditText(context).apply {
                     layoutParams = LinearLayout.LayoutParams((44 * density).toInt(), (40 * density).toInt())
-                    text = rowLabel
+                    setText(rowLabel)
+                    hint = defaultRowLabel
                     textSize = 12f
                     setTypeface(null, Typeface.BOLD)
                     setTextColor(headerTextColor)
+                    setHintTextColor(if (isDark) Color.parseColor("#64748B") else Color.parseColor("#94A3B8"))
                     gravity = Gravity.CENTER
+                    isSingleLine = true
                     background = GradientDrawable().apply {
                         shape = GradientDrawable.RECTANGLE
                         setColor(headerBg)
                         setStroke((1 * density).toInt(), borderColor)
                     }
+                }
+                rh.addTextChangedListener(object : TextWatcher {
+                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                    override fun afterTextChanged(s: Editable?) {
+                        while (table.customRowLabels.size <= r) table.customRowLabels.add("")
+                        table.customRowLabels[r] = s?.toString() ?: ""
+                    }
+                })
+                rh.setOnFocusChangeListener { _, _ -> onTextFocusChanged() }
+                rh.setOnTouchListener { _, event ->
+                    if (!isSelectedState && event.actionMasked == MotionEvent.ACTION_UP) {
+                        onBoxTapped(this@NoteBoxView)
+                    }
+                    false
                 }
                 rowLayout.addView(rh)
             }
@@ -516,12 +759,14 @@ class NoteBoxView(
             tableContainer.addView(rowLayout)
         }
 
-        // 3. Quick Table Row/Col Modification Controls
+        // 3. Quick Table Row/Col Modification Controls (Visible only when table card is selected)
         val controlsLayout = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(0, (8 * density).toInt(), 0, 0)
+            visibility = if (isSelectedState) View.VISIBLE else View.GONE
         }
+        tableControlsLayout = controlsLayout
         val btnAddRow = TextView(context).apply {
             text = "+ Row"
             setTextColor(accentCol)
@@ -615,6 +860,15 @@ class NoteBoxView(
     private fun buildShapeContent(): View {
         return buildTextContent().apply {
             hint = "Add shape note..."
+            gravity = Gravity.CENTER
+            val density = resources.displayMetrics.density
+            when (data.shapeType) {
+                ShapeType.DIAMOND -> setPadding((36 * density).toInt(), (36 * density).toInt(), (36 * density).toInt(), (36 * density).toInt())
+                ShapeType.TRIANGLE -> setPadding((32 * density).toInt(), (44 * density).toInt(), (32 * density).toInt(), (20 * density).toInt())
+                ShapeType.STAR -> setPadding((36 * density).toInt(), (36 * density).toInt(), (36 * density).toInt(), (36 * density).toInt())
+                ShapeType.CLOUD -> setPadding((28 * density).toInt(), (28 * density).toInt(), (28 * density).toInt(), (28 * density).toInt())
+                else -> setPadding((16 * density).toInt(), (16 * density).toInt(), (16 * density).toInt(), (16 * density).toInt())
+            }
         }
     }
 
@@ -846,7 +1100,7 @@ class NoteBoxView(
 
     // ---------- Menu ----------
  
-    fun showBoxMenu(anchorView: View? = null) {
+    fun showBoxMenu() {
         val tc = themeColors ?: ThemeColors.modernClean()
         val title = if (data.text.isNotBlank()) data.text.take(24) else "Card Options"
         val builder = ThemedDialog.Builder(context, tc)
@@ -933,9 +1187,14 @@ class NoteBoxView(
 
     // ---------- Styling ----------
 
-    fun setBoxColor(color: Int) {
+    fun setBoxColor(color: Int, recordUndo: Boolean = true) {
+        val old = data.boxColor
         data.boxColor = color
         updateBackgroundShape()
+        invalidate()
+        if (recordUndo && old != color) {
+            onColorChanged?.invoke(this, old, color)
+        }
     }
 
     fun setTextColor(color: Int) {
@@ -994,22 +1253,18 @@ class NoteBoxView(
 
     fun setSelectedState(selected: Boolean) {
         isSelectedState = selected
+        if (!selected) {
+            exitTextEditing()
+        }
         updateBackgroundShape()
+        if (data.kind == BoxKind.TABLE) {
+            tableControlsLayout?.visibility = if (selected) View.VISIBLE else View.GONE
+        }
+        invalidate()
     }
 
     fun focusTextInput() {
-        (contentContainer as? EditText)?.let { et ->
-            et.isFocusable = true
-            et.isFocusableInTouchMode = true
-            et.requestFocus()
-            et.setSelection(et.text.length)
-            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
-            imm?.showSoftInput(et, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
-            et.postDelayed({
-                et.requestFocus()
-                imm?.showSoftInput(et, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
-            }, 80)
-        }
+        enterTextEditing()
     }
 
     fun isBoxSelected(): Boolean = isSelectedState
