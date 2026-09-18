@@ -26,6 +26,7 @@ class MinimapView @JvmOverloads constructor(
 ) : View(context, attrs, defStyleAttr) {
 
     var boxesProvider: (() -> List<NoteBoxView>)? = null
+    var connectorsProvider: (() -> List<ConnectorData>)? = null
     var viewportProvider: (() -> RectF)? = null
     var onTeleport: ((worldX: Float, worldY: Float) -> Unit)? = null
     var themeColors: ThemeColors? = null
@@ -41,6 +42,11 @@ class MinimapView @JvmOverloads constructor(
     }
     private val cardPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
+    }
+    private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
     }
     private val viewportFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#4038BDF8") // Subtle sky blue fill
@@ -97,9 +103,11 @@ class MinimapView @JvmOverloads constructor(
         canvas.drawRoundRect(boundsRect, 24f, 24f, borderPaint)
 
         val boxes = boxesProvider?.invoke() ?: emptyList()
+        val connectors = connectorsProvider?.invoke() ?: emptyList()
         val viewport = viewportProvider?.invoke() ?: RectF(0f, 0f, 1000f, 1000f)
+        val boxMap = boxes.associateBy { it.data.id }
 
-        // 2. Compute bounding area of all cards and active viewport
+        // 2. Compute bounding area of all cards, connectors, and active viewport
         var minX = viewport.left
         var minY = viewport.top
         var maxX = viewport.right
@@ -111,6 +119,28 @@ class MinimapView @JvmOverloads constructor(
             minY = min(minY, d.y)
             maxX = max(maxX, d.x + d.width)
             maxY = max(maxY, d.y + d.height)
+        }
+
+        for (c in connectors) {
+            if (c.isFreeArrow) {
+                minX = min(minX, min(c.startX, c.endX))
+                minY = min(minY, min(c.startY, c.endY))
+                maxX = max(maxX, max(c.startX, c.endX))
+                maxY = max(maxY, max(c.startY, c.endY))
+            } else {
+                val from = boxMap[c.fromId]?.data
+                val to = boxMap[c.toId]?.data
+                if (from != null && to != null) {
+                    val x1 = from.x + from.width / 2f
+                    val y1 = from.y + from.height / 2f
+                    val x2 = to.x + to.width / 2f
+                    val y2 = to.y + to.height / 2f
+                    minX = min(minX, min(x1, x2))
+                    minY = min(minY, min(y1, y2))
+                    maxX = max(maxX, max(x1, x2))
+                    maxY = max(maxY, max(y1, y2))
+                }
+            }
         }
 
         // Add 20% margin around content
@@ -136,7 +166,31 @@ class MinimapView @JvmOverloads constructor(
         offsetX = pad + (innerW - worldW * mapScale) / 2f
         offsetY = pad + (innerH - worldH * mapScale) / 2f
 
-        // 3. Draw cards
+        // 3. Draw Connectors (including free-floating arrows)
+        for (c in connectors) {
+            val x1: Float
+            val y1: Float
+            val x2: Float
+            val y2: Float
+            if (c.isFreeArrow) {
+                x1 = offsetX + (c.startX - worldMinX) * mapScale
+                y1 = offsetY + (c.startY - worldMinY) * mapScale
+                x2 = offsetX + (c.endX - worldMinX) * mapScale
+                y2 = offsetY + (c.endY - worldMinY) * mapScale
+            } else {
+                val from = boxMap[c.fromId]?.data ?: continue
+                val to = boxMap[c.toId]?.data ?: continue
+                x1 = offsetX + (from.x + from.width / 2f - worldMinX) * mapScale
+                y1 = offsetY + (from.y + from.height / 2f - worldMinY) * mapScale
+                x2 = offsetX + (to.x + to.width / 2f - worldMinX) * mapScale
+                y2 = offsetY + (to.y + to.height / 2f - worldMinY) * mapScale
+            }
+            linePaint.color = c.color
+            linePaint.strokeWidth = max(1.5f, c.strokeWidth * mapScale)
+            canvas.drawLine(x1, y1, x2, y2, linePaint)
+        }
+
+        // 4. Draw cards
         for (box in boxes) {
             val d = box.data
             val cx = offsetX + (d.x - worldMinX) * mapScale

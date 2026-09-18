@@ -1090,6 +1090,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupMinimap() {
         minimapView.boxesProvider = { canvas.allBoxViews() }
+        minimapView.connectorsProvider = { canvas.allConnectors() }
         minimapView.viewportProvider = { canvas.getCurrentViewport() }
         minimapView.onTeleport = { x, y -> canvas.teleportTo(x, y) }
         btnMinimapClose.setOnClickListener {
@@ -2665,6 +2666,7 @@ class MainActivity : AppCompatActivity() {
             showThemedToast("Add notes, sketches, or arrows before downloading", R.drawable.ic_download)
             return
         }
+        saveActiveBoard()
 
         val boardName = boardManager.getActiveMeta().name.replace(Regex("[^a-zA-Z0-9_]"), "_").ifBlank { "board" }
 
@@ -2695,6 +2697,7 @@ class MainActivity : AppCompatActivity() {
             showThemedToast("Add notes, sketches, or arrows before sharing", R.drawable.ic_share)
             return
         }
+        saveActiveBoard()
 
         ThemedDialog.Builder(this, canvas.themeColors)
             .setTitle("Share Board")

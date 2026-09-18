@@ -109,7 +109,7 @@ class BoardThumbnailMinimapView @JvmOverloads constructor(
         }
 
         val data = boardData
-        if (data == null || (data.boxes.isEmpty() && data.strokes.isEmpty() && data.fgStrokes.isEmpty())) {
+        if (data == null || (data.boxes.isEmpty() && data.strokes.isEmpty() && data.fgStrokes.isEmpty() && data.connectors.isEmpty())) {
             canvas.drawText("Empty Board", w / 2f, h / 2f + 10f, placeholderPaint)
             return
         }
@@ -119,6 +119,8 @@ class BoardThumbnailMinimapView @JvmOverloads constructor(
         var minY = Float.POSITIVE_INFINITY
         var maxX = Float.NEGATIVE_INFINITY
         var maxY = Float.NEGATIVE_INFINITY
+
+        val boxMap = data.boxes.associateBy { it.id }
 
         for (b in data.boxes) {
             minX = min(minX, b.x)
@@ -134,6 +136,28 @@ class BoardThumbnailMinimapView @JvmOverloads constructor(
                 minY = min(minY, pt.second)
                 maxX = max(maxX, pt.first)
                 maxY = max(maxY, pt.second)
+            }
+        }
+
+        for (c in data.connectors) {
+            if (c.isFreeArrow) {
+                minX = min(minX, min(c.startX, c.endX))
+                minY = min(minY, min(c.startY, c.endY))
+                maxX = max(maxX, max(c.startX, c.endX))
+                maxY = max(maxY, max(c.startY, c.endY))
+            } else {
+                val from = boxMap[c.fromId]
+                val to = boxMap[c.toId]
+                if (from != null && to != null) {
+                    val x1 = from.x + from.width / 2f
+                    val y1 = from.y + from.height / 2f
+                    val x2 = to.x + to.width / 2f
+                    val y2 = to.y + to.height / 2f
+                    minX = min(minX, min(x1, x2))
+                    minY = min(minY, min(y1, y2))
+                    maxX = max(maxX, max(x1, x2))
+                    maxY = max(maxY, max(y1, y2))
+                }
             }
         }
 
@@ -159,19 +183,54 @@ class BoardThumbnailMinimapView @JvmOverloads constructor(
         val offsetX = pad + (innerW - worldW * scale) / 2f
         val offsetY = pad + (innerH - worldH * scale) / 2f
 
-        // 1. Draw Connectors
-        val boxMap = data.boxes.associateBy { it.id }
+        // 1. Draw Connectors (including free-floating arrows)
+        val arrowFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+        }
         for (c in data.connectors) {
-            val from = boxMap[c.fromId] ?: continue
-            val to = boxMap[c.toId] ?: continue
-            val x1 = offsetX + (from.x + from.width / 2f - minX) * scale
-            val y1 = offsetY + (from.y + from.height / 2f - minY) * scale
-            val x2 = offsetX + (to.x + to.width / 2f - minX) * scale
-            val y2 = offsetY + (to.y + to.height / 2f - minY) * scale
+            val x1: Float
+            val y1: Float
+            val x2: Float
+            val y2: Float
+            if (c.isFreeArrow) {
+                x1 = offsetX + (c.startX - minX) * scale
+                y1 = offsetY + (c.startY - minY) * scale
+                x2 = offsetX + (c.endX - minX) * scale
+                y2 = offsetY + (c.endY - minY) * scale
+            } else {
+                val from = boxMap[c.fromId] ?: continue
+                val to = boxMap[c.toId] ?: continue
+                x1 = offsetX + (from.x + from.width / 2f - minX) * scale
+                y1 = offsetY + (from.y + from.height / 2f - minY) * scale
+                x2 = offsetX + (to.x + to.width / 2f - minX) * scale
+                y2 = offsetY + (to.y + to.height / 2f - minY) * scale
+            }
 
             linePaint.color = c.color
-            linePaint.strokeWidth = 2f
+            linePaint.strokeWidth = max(2f, c.strokeWidth * scale)
             canvas.drawLine(x1, y1, x2, y2, linePaint)
+
+            // Draw miniature directional arrow head
+            val dx = x2 - x1
+            val dy = y2 - y1
+            val len = kotlin.math.hypot(dx.toDouble(), dy.toDouble()).toFloat()
+            if (len > 8f) {
+                val angle = kotlin.math.atan2(dy.toDouble(), dx.toDouble())
+                val arrowSize = (6f + c.strokeWidth * scale).coerceIn(5f, 14f)
+                val arrowAngle = Math.toRadians(28.0)
+                val a1X = (x2 - arrowSize * kotlin.math.cos(angle - arrowAngle)).toFloat()
+                val a1Y = (y2 - arrowSize * kotlin.math.sin(angle - arrowAngle)).toFloat()
+                val a2X = (x2 - arrowSize * kotlin.math.cos(angle + arrowAngle)).toFloat()
+                val a2Y = (y2 - arrowSize * kotlin.math.sin(angle + arrowAngle)).toFloat()
+                val arrowPath = Path().apply {
+                    moveTo(x2, y2)
+                    lineTo(a1X, a1Y)
+                    lineTo(a2X, a2Y)
+                    close()
+                }
+                arrowFillPaint.color = c.color
+                canvas.drawPath(arrowPath, arrowFillPaint)
+            }
         }
 
         // 2. Draw Background Strokes

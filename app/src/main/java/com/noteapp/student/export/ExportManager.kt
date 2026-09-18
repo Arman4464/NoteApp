@@ -206,8 +206,10 @@ object ExportManager {
         }
 
         fun drawConnectorsList(connList: List<ConnectorData>) {
+            if (connList.isEmpty()) return
             canvas.save()
             canvas.translate(-minX * scale, -minY * scale)
+            canvas.scale(scale, scale)
             for (conn in connList) {
                 val from = if (conn.fromId.isNotBlank()) boxMap[conn.fromId]?.data else null
                 val to = if (conn.toId.isNotBlank()) boxMap[conn.toId]?.data else null
@@ -216,7 +218,7 @@ object ExportManager {
                     conn,
                     from,
                     to,
-                    scale = scale,
+                    scale = 1f,
                     linePaint,
                     arrowFillPaint,
                     arrowStrokePaint

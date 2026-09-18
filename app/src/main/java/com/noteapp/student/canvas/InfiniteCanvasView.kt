@@ -398,9 +398,10 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-        // When drawing or erasing, route directly to onTouchEvent so that child cards and edit texts
-        // cannot intercept or block freehand ink strokes!
-        if (activeTool == CanvasTool.DRAW || activeTool == CanvasTool.ERASER) {
+        // When drawing, erasing, or drawing free arrows, route directly to onTouchEvent so that child cards and edit texts
+        // cannot intercept or block gestures!
+        if (activeTool == CanvasTool.DRAW || activeTool == CanvasTool.ERASER ||
+            (activeTool == CanvasTool.CONNECT && isFreeArrowMode)) {
             return onTouchEvent(ev)
         }
         return super.dispatchTouchEvent(ev)
@@ -410,7 +411,8 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
         // Multi-touch gestures (pinch to zoom) are always intercepted by canvas
         if (ev.pointerCount >= 2) return true
         if (activeTool == CanvasTool.PAN) return true
-        if (activeTool == CanvasTool.DRAW || activeTool == CanvasTool.ERASER) return true
+        if (activeTool == CanvasTool.DRAW || activeTool == CanvasTool.ERASER ||
+            (activeTool == CanvasTool.CONNECT && isFreeArrowMode)) return true
         return false
     }
 
@@ -1127,7 +1129,8 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
     // ---------- Camera & Zoom Controls ----------
 
     fun zoomToFit() {
-        if (boxes.isEmpty()) {
+        val allStrokes = bgDrawingOverlay.getAllStrokes() + fgDrawingOverlay.getAllStrokes()
+        if (boxes.isEmpty() && connectors.isEmpty() && allStrokes.isEmpty()) {
             resetZoom()
             return
         }
@@ -1140,6 +1143,40 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
             minY = min(minY, box.data.y)
             maxX = max(maxX, box.data.x + box.data.width)
             maxY = max(maxY, box.data.y + box.data.height)
+        }
+        val boxMap = boxes.associateBy { it.data.id }
+        for (conn in connectors) {
+            if (conn.isFreeArrow) {
+                minX = min(minX, min(conn.startX, conn.endX))
+                minY = min(minY, min(conn.startY, conn.endY))
+                maxX = max(maxX, max(conn.startX, conn.endX))
+                maxY = max(maxY, max(conn.startY, conn.endY))
+            } else {
+                val from = boxMap[conn.fromId]?.data
+                val to = boxMap[conn.toId]?.data
+                if (from != null && to != null) {
+                    val x1 = from.x + from.width / 2f
+                    val y1 = from.y + from.height / 2f
+                    val x2 = to.x + to.width / 2f
+                    val y2 = to.y + to.height / 2f
+                    minX = min(minX, min(x1, x2))
+                    minY = min(minY, min(y1, y2))
+                    maxX = max(maxX, max(x1, x2))
+                    maxY = max(maxY, max(y1, y2))
+                }
+            }
+        }
+        for (stroke in allStrokes) {
+            for (pt in stroke.points) {
+                minX = min(minX, pt.first)
+                minY = min(minY, pt.second)
+                maxX = max(maxX, pt.first)
+                maxY = max(maxY, pt.second)
+            }
+        }
+        if (minX.isInfinite()) {
+            resetZoom()
+            return
         }
         val padding = 80f
         val contentW = (maxX - minX) + padding * 2
@@ -1307,7 +1344,7 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
         bgDrawingOverlay.setStrokes(board.strokes)
         fgDrawingOverlay.setStrokes(board.fgStrokes)
 
-        if (board.scale in MIN_SCALE..MAX_SCALE && board.panX != 0f && board.panY != 0f) {
+        if (board.scale in MIN_SCALE..MAX_SCALE && (board.panX != 0f || board.panY != 0f || (board.boxes.isEmpty() && board.connectors.isEmpty()))) {
             scale = board.scale
             contentLayer.scaleX = scale
             contentLayer.scaleY = scale
@@ -1322,10 +1359,10 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
     fun exportBoardData(meta: BoardMeta): BoardData {
         return BoardData(
             meta = meta,
-            boxes = boxes.map { it.data }.toMutableList(),
-            connectors = connectors.toMutableList(),
-            strokes = bgDrawingOverlay.getAllStrokes().toMutableList(),
-            fgStrokes = fgDrawingOverlay.getAllStrokes().toMutableList(),
+            boxes = boxes.map { it.data.copyDeep() }.toMutableList(),
+            connectors = connectors.map { it.copy() }.toMutableList(),
+            strokes = bgDrawingOverlay.getAllStrokes().map { it.copyDeep() }.toMutableList(),
+            fgStrokes = fgDrawingOverlay.getAllStrokes().map { it.copyDeep() }.toMutableList(),
             panX = contentLayer.translationX,
             panY = contentLayer.translationY,
             scale = scale

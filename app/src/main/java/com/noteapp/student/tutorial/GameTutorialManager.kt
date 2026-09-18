@@ -172,11 +172,14 @@ class GameTutorialManager(
     private var targetPulseAnimator: ObjectAnimator? = null
     private var currentPulsingView: View? = null
     private var isCompletingQuest = false
+    private var lastQuestLoadedTime = 0L
+    private val QUEST_COOLDOWN_MS = 600L
 
     fun startTutorial(hud: GameTutorialHudView) {
         hudView = hud
         isTutorialActive = true
         isCompletingQuest = false
+        lastQuestLoadedTime = android.os.SystemClock.uptimeMillis()
         currentQuestIndex = 0
 
         hud.visibility = View.VISIBLE
@@ -201,6 +204,7 @@ class GameTutorialManager(
             return
         }
 
+        lastQuestLoadedTime = android.os.SystemClock.uptimeMillis()
         val quest = quests[index]
         hudView?.bindQuest(quest, index, quests.size)
 
@@ -237,6 +241,7 @@ class GameTutorialManager(
     fun completeCurrentQuest(targetQuestId: QuestId) {
         if (!isTutorialActive) return
         if (isCompletingQuest) return
+        if (android.os.SystemClock.uptimeMillis() - lastQuestLoadedTime < QUEST_COOLDOWN_MS) return
         if (currentQuestIndex >= quests.size) return
 
         val activeQuest = quests[currentQuestIndex]
