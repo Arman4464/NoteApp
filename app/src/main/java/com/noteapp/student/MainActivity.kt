@@ -8,6 +8,8 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.Gravity
@@ -19,6 +21,7 @@ import android.widget.HorizontalScrollView
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
@@ -32,6 +35,7 @@ import com.noteapp.student.canvas.BoardManager
 import com.noteapp.student.canvas.BoardMeta
 import com.noteapp.student.canvas.BoxKind
 import com.noteapp.student.canvas.CanvasTool
+import com.noteapp.student.canvas.EraserMode
 import com.noteapp.student.canvas.InfiniteCanvasView
 import com.noteapp.student.canvas.MinimapView
 import com.noteapp.student.canvas.NoteBoxView
@@ -47,6 +51,8 @@ import com.noteapp.student.settings.GridStyle
 import com.noteapp.student.settings.ThemeColors
 import com.noteapp.student.settings.ThemeManager
 import com.noteapp.student.settings.ThemeType
+import com.noteapp.student.tutorial.GameTutorialHudView
+import com.noteapp.student.tutorial.GameTutorialManager
 import com.noteapp.student.tutorial.TutorialDialog
 import com.noteapp.student.undo.UndoRedoManager
 import com.noteapp.student.util.ColorPicker
@@ -81,6 +87,14 @@ class MainActivity : AppCompatActivity() {
     // Screen 2: Canvas
     private lateinit var canvasContainer: FrameLayout
     private lateinit var canvas: InfiniteCanvasView
+    private lateinit var canvasLoadingOverlay: FrameLayout
+    private lateinit var ivLoadingLogo: ImageView
+    private lateinit var pbCanvasLoading: ProgressBar
+    private lateinit var tvLoadingStatus: TextView
+
+    // Action-based autosave handler
+    private val autoSaveHandler = Handler(Looper.getMainLooper())
+    private var autoSaveRunnable: Runnable? = null
 
     // Canvas Top Navigation Bar
     private lateinit var topBar: LinearLayout
@@ -129,6 +143,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnSelectionDelete: TextView
     private lateinit var btnSelectionClose: TextView
 
+    // Interactive Game Tutorial
+    private lateinit var gameTutorialHud: GameTutorialHudView
+    private lateinit var gameTutorialManager: GameTutorialManager
+
     // Zoom HUD Controller
     private lateinit var zoomHud: LinearLayout
     private lateinit var btnZoomOut: TextView
@@ -166,16 +184,21 @@ class MainActivity : AppCompatActivity() {
 
     // Eraser Settings
     private lateinit var panelEraserSettings: LinearLayout
+    private lateinit var btnEraserTargetInk: TextView
+    private lateinit var btnEraserTargetArrows: TextView
+    private lateinit var btnEraserTargetAll: TextView
     private lateinit var btnEraserSizeS: TextView
     private lateinit var btnEraserSizeM: TextView
     private lateinit var btnEraserSizeL: TextView
     private lateinit var btnClearCanvasInk: Button
+    private lateinit var btnClearCanvasArrows: Button
 
     // Connector Settings
     private lateinit var panelConnectSettings: LinearLayout
     private lateinit var btnConnectMode: Button
     private lateinit var btnTailNone: TextView
     private lateinit var btnTailArrow: TextView
+    private lateinit var btnTailOpen: TextView
     private lateinit var btnTailDot: TextView
     private lateinit var btnTailDiamond: TextView
     private lateinit var btnTailBar: TextView
@@ -183,6 +206,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnHeadOpen: TextView
     private lateinit var btnHeadDot: TextView
     private lateinit var btnHeadDiamond: TextView
+    private lateinit var btnHeadBar: TextView
     private lateinit var btnHeadNone: TextView
     private lateinit var btnConnectLayer: Button
     private lateinit var layoutConnectSwatches: LinearLayout
@@ -259,8 +283,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleIncomingIntent(intent: android.content.Intent?) {
-        val uri = intent?.data ?: return
-        if (intent.action == android.content.Intent.ACTION_VIEW || intent.action == android.content.Intent.ACTION_SEND) {
+        if (intent == null) return
+        val uri: Uri? = when (intent.action) {
+            android.content.Intent.ACTION_SEND -> {
+                @Suppress("DEPRECATION")
+                (intent.getParcelableExtra<Uri>(android.content.Intent.EXTRA_STREAM))
+                    ?: intent.clipData?.let { if (it.itemCount > 0) it.getItemAt(0)?.uri else null }
+                    ?: intent.data
+            }
+            android.content.Intent.ACTION_VIEW -> {
+                intent.data ?: intent.clipData?.let { if (it.itemCount > 0) it.getItemAt(0)?.uri else null }
+            }
+            else -> intent.data
+        }
+        if (uri != null) {
             handleIncomingProject(uri)
         }
     }
@@ -293,20 +329,19 @@ class MainActivity : AppCompatActivity() {
 
         setupBackNavigation()
 
-        // Open Homepage initially
-        showHomeScreen()
+        // Open Homepage initially (or launch directly into Interactive Tutorial if not completed)
+        if (!appSettings.tutorialCompleted) {
+            val playgroundBoard = boardManager.getOrCreatePlaygroundBoard()
+            showCanvasScreen(playgroundBoard.meta.id)
+            canvas.postDelayed({
+                gameTutorialManager.startTutorial(gameTutorialHud)
+            }, 350)
+        } else {
+            showHomeScreen()
+        }
 
         // Handle opening .noteapp files from external apps/file managers
         handleIncomingIntent(intent)
-
-        // Show onboarding tutorial on first launch with skip button
-        if (!appSettings.tutorialCompleted) {
-            canvas.post {
-                TutorialDialog(this, appSettings) {
-                    showThemedToast("Welcome to NoteApp! Enjoy exploring your workspace.")
-                }.show()
-            }
-        }
     }
 
     override fun onPause() {
@@ -325,8 +360,28 @@ class MainActivity : AppCompatActivity() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (canvasContainer.visibility == View.VISIBLE) {
+                    if (::toolSettingsPanel.isInitialized && toolSettingsPanel.visibility == View.VISIBLE) {
+                        closeToolSettingsPanel()
+                        return
+                    }
                     if (searchBarContainer.visibility == View.VISIBLE) {
                         closeCanvasSearch()
+                        return
+                    }
+                    if (canvas.selectedBoxes.size > 0) {
+                        canvas.clearSelection()
+                        return
+                    }
+                    if (::gameTutorialManager.isInitialized && gameTutorialManager.isTutorialActive) {
+                        ThemedDialog.Builder(this@MainActivity, canvas.themeColors)
+                            .setTitle("Pause Tutorial?")
+                            .setMessage("Would you like to exit the training quests and return to the Home screen?")
+                            .setPositiveButton("Exit Tutorial") {
+                                gameTutorialManager.exitTutorial()
+                                showHomeScreen()
+                            }
+                            .setNegativeButton("Continue")
+                            .show()
                         return
                     }
                     if (boardManager.canNavigateBack()) {
@@ -375,6 +430,10 @@ class MainActivity : AppCompatActivity() {
         // Canvas Views
         canvasContainer = findViewById(R.id.canvasContainer)
         canvas = findViewById(R.id.infiniteCanvas)
+        canvasLoadingOverlay = findViewById(R.id.canvasLoadingOverlay)
+        ivLoadingLogo = findViewById(R.id.ivLoadingLogo)
+        pbCanvasLoading = findViewById(R.id.pbCanvasLoading)
+        tvLoadingStatus = findViewById(R.id.tvLoadingStatus)
 
         // Top Bar
         topBar = findViewById(R.id.topBar)
@@ -422,6 +481,12 @@ class MainActivity : AppCompatActivity() {
         btnSelectionDelete = findViewById(R.id.btnSelectionDelete)
         btnSelectionClose = findViewById(R.id.btnSelectionClose)
 
+        // Game Tutorial HUD & Manager
+        gameTutorialHud = findViewById(R.id.gameTutorialHud)
+        gameTutorialManager = GameTutorialManager(this, appSettings) {
+            showThemedToast("🎉 Master Level Achieved! You mastered NoteApp.")
+        }
+
         // Zoom HUD
         zoomHud = findViewById(R.id.zoomHud)
         btnZoomOut = findViewById(R.id.btnZoomOut)
@@ -457,15 +522,20 @@ class MainActivity : AppCompatActivity() {
         btnDrawLayer = findViewById(R.id.btnDrawLayer)
 
         panelEraserSettings = findViewById(R.id.panelEraserSettings)
+        btnEraserTargetInk = findViewById(R.id.btnEraserTargetInk)
+        btnEraserTargetArrows = findViewById(R.id.btnEraserTargetArrows)
+        btnEraserTargetAll = findViewById(R.id.btnEraserTargetAll)
         btnEraserSizeS = findViewById(R.id.btnEraserSizeS)
         btnEraserSizeM = findViewById(R.id.btnEraserSizeM)
         btnEraserSizeL = findViewById(R.id.btnEraserSizeL)
         btnClearCanvasInk = findViewById(R.id.btnClearCanvasInk)
+        btnClearCanvasArrows = findViewById(R.id.btnClearCanvasArrows)
 
         panelConnectSettings = findViewById(R.id.panelConnectSettings)
         btnConnectMode = findViewById(R.id.btnConnectMode)
         btnTailNone = findViewById(R.id.btnTailNone)
         btnTailArrow = findViewById(R.id.btnTailArrow)
+        btnTailOpen = findViewById(R.id.btnTailOpen)
         btnTailDot = findViewById(R.id.btnTailDot)
         btnTailDiamond = findViewById(R.id.btnTailDiamond)
         btnTailBar = findViewById(R.id.btnTailBar)
@@ -473,6 +543,7 @@ class MainActivity : AppCompatActivity() {
         btnHeadOpen = findViewById(R.id.btnHeadOpen)
         btnHeadDot = findViewById(R.id.btnHeadDot)
         btnHeadDiamond = findViewById(R.id.btnHeadDiamond)
+        btnHeadBar = findViewById(R.id.btnHeadBar)
         btnHeadNone = findViewById(R.id.btnHeadNone)
         btnConnectLayer = findViewById(R.id.btnConnectLayer)
         layoutConnectSwatches = findViewById(R.id.layoutConnectSwatches)
@@ -552,83 +623,128 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
+    private fun showCanvasLoading(status: String = "Opening Workspace...", colors: ThemeColors? = null) {
+        val resolvedColors = colors ?: if (canvasContainer.visibility == View.VISIBLE) canvas.themeColors else ThemeManager.getThemeColors(appSettings.theme)
+        canvasLoadingOverlay.setBackgroundColor(resolvedColors.canvasBg)
+        pbCanvasLoading.indeterminateTintList = ColorStateList.valueOf(resolvedColors.accent)
+        tvLoadingStatus.setTextColor(resolvedColors.topBarText)
+        tvLoadingStatus.text = status
+        canvasLoadingOverlay.alpha = 1f
+        canvasLoadingOverlay.visibility = View.VISIBLE
+    }
+
+    private fun hideCanvasLoading() {
+        if (canvasLoadingOverlay.visibility == View.VISIBLE) {
+            canvasLoadingOverlay.animate()
+                .alpha(0f)
+                .setDuration(250)
+                .withEndAction {
+                    canvasLoadingOverlay.visibility = View.GONE
+                }
+                .start()
+        }
+    }
+
     private fun showHomeScreen() {
         closeCanvasSearch()
         canvas.clearSelection()
         if (canvasContainer.visibility == View.VISIBLE) {
             saveActiveBoard()
         }
-        canvasContainer.visibility = View.GONE
-        homeContainer.visibility = View.VISIBLE
         val colors = ThemeManager.getThemeColors(appSettings.theme)
         applyHomeTheme(colors)
         refreshHomeBoards(etHomeSearch.text.toString())
+
+        if (canvasContainer.visibility == View.VISIBLE) {
+            canvasContainer.animate()
+                .alpha(0f)
+                .setDuration(180)
+                .withEndAction {
+                    canvasContainer.visibility = View.GONE
+                    canvasContainer.alpha = 1f
+                    homeContainer.alpha = 0f
+                    homeContainer.translationY = 24f * resources.displayMetrics.density
+                    homeContainer.visibility = View.VISIBLE
+                    homeContainer.animate()
+                        .alpha(1f)
+                        .translationY(0f)
+                        .setDuration(220)
+                        .start()
+                }
+                .start()
+        } else {
+            homeContainer.visibility = View.VISIBLE
+        }
     }
 
     private fun showCanvasScreen(boardId: String) {
         val boardData = boardManager.switchBoard(boardId)
-        canvas.loadBoardData(boardData)
-        undoRedoManager.clear()
-        updateBoardHeader()
-
-        homeContainer.visibility = View.GONE
-        canvasContainer.visibility = View.VISIBLE
-
         val globalColors = ThemeManager.getThemeColors(appSettings.theme)
         val colors = BoardSubTheme.resolveThemeColors(boardData.meta.subThemeId, boardData.meta.subThemeIsDark, globalColors)
-        canvas.applyTheme(colors)
-        minimapView.themeColors = colors
-        applyCanvasTheme(colors)
 
-        minimapView.invalidate()
-        updateToolSettingsButtonState()
+        showCanvasLoading("Opening ${boardData.meta.name}...", colors)
+        canvasContainer.visibility = View.VISIBLE
+        homeContainer.visibility = View.GONE
+
+        canvas.post {
+            canvas.loadBoardData(boardData)
+            undoRedoManager.clear()
+            updateBoardHeader()
+
+            canvas.applyTheme(colors)
+            minimapView.themeColors = colors
+            applyCanvasTheme(colors)
+
+            minimapView.invalidate()
+            updateToolSettingsButtonState()
+
+            canvas.postDelayed({
+                hideCanvasLoading()
+            }, 120)
+        }
     }
 
     fun showThemedToast(message: String, iconRes: Int = 0) {
-        if (canvasContainer.visibility == View.VISIBLE) {
-            hudDismissRunnable?.let { hudNotificationBar.removeCallbacks(it) }
-            tvHudMessage.text = message
-            if (iconRes != 0) {
-                ivHudIcon.setImageResource(iconRes)
-                ivHudIcon.visibility = View.VISIBLE
-            } else {
-                ivHudIcon.visibility = View.GONE
-            }
-            val colors = canvas.themeColors
-            val bgDrawable = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = 24f * resources.displayMetrics.density
-                setColor(if (colors.isDark) Color.parseColor("#0F172A") else Color.parseColor("#1E293B"))
-                setStroke((1.5f * resources.displayMetrics.density).toInt(), colors.accent)
-            }
-            hudNotificationBar.background = bgDrawable
-            tvHudMessage.setTextColor(Color.WHITE)
+        hudDismissRunnable?.let { hudNotificationBar.removeCallbacks(it) }
+        tvHudMessage.text = message
+        val colors = if (canvasContainer.visibility == View.VISIBLE) canvas.themeColors else ThemeManager.getThemeColors(appSettings.theme)
+        if (iconRes != 0) {
+            ivHudIcon.setImageResource(iconRes)
             ivHudIcon.imageTintList = ColorStateList.valueOf(colors.accent)
-
-            hudNotificationBar.visibility = View.VISIBLE
-            hudNotificationBar.alpha = 0f
-            hudNotificationBar.translationY = -20f
-            hudNotificationBar.animate()
-                .alpha(1f)
-                .translationY(0f)
-                .setDuration(180)
-                .start()
-
-            val runnable = Runnable {
-                hudNotificationBar.animate()
-                    .alpha(0f)
-                    .translationY(-20f)
-                    .setDuration(220)
-                    .withEndAction {
-                        hudNotificationBar.visibility = View.GONE
-                    }
-                    .start()
-            }
-            hudDismissRunnable = runnable
-            hudNotificationBar.postDelayed(runnable, 2000)
+            ivHudIcon.visibility = View.VISIBLE
         } else {
-            Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+            ivHudIcon.visibility = View.GONE
         }
+        val bgDrawable = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 24f * resources.displayMetrics.density
+            setColor(if (colors.isDark) Color.parseColor("#1E293B") else Color.parseColor("#0F172A"))
+            setStroke((1.5f * resources.displayMetrics.density).toInt(), colors.accent)
+        }
+        hudNotificationBar.background = bgDrawable
+        tvHudMessage.setTextColor(Color.WHITE)
+
+        hudNotificationBar.visibility = View.VISIBLE
+        hudNotificationBar.alpha = 0f
+        hudNotificationBar.translationY = -30f * resources.displayMetrics.density
+        hudNotificationBar.animate()
+            .alpha(1f)
+            .translationY(0f)
+            .setDuration(200)
+            .start()
+
+        val runnable = Runnable {
+            hudNotificationBar.animate()
+                .alpha(0f)
+                .translationY(-30f * resources.displayMetrics.density)
+                .setDuration(220)
+                .withEndAction {
+                    hudNotificationBar.visibility = View.GONE
+                }
+                .start()
+        }
+        hudDismissRunnable = runnable
+        hudNotificationBar.postDelayed(runnable, 2200)
     }
 
     private fun refreshHomeBoards(query: String = "") {
@@ -646,7 +762,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupCanvas() {
         canvas.undoRedoManager = undoRedoManager
-        canvas.onTextFocusEvent = { refreshFormatToolbar() }
+        canvas.onContentChanged = { triggerAutoSave(immediate = false) }
+        canvas.onTextFocusEvent = {
+            refreshFormatToolbar()
+            if (::gameTutorialManager.isInitialized) {
+                gameTutorialManager.notifyTextFocused()
+            }
+        }
 
         canvas.onSelectionChanged = { count ->
             if (count > 0 && canvas.activeTool == CanvasTool.SELECT) {
@@ -655,7 +777,40 @@ class MainActivity : AppCompatActivity() {
             } else {
                 selectionBar.visibility = View.GONE
             }
+            if (::gameTutorialManager.isInitialized) {
+                gameTutorialManager.notifyMultiSelect(count)
+            }
             minimapView.invalidate()
+        }
+
+        canvas.onCanvasPanZoomListener = {
+            if (::gameTutorialManager.isInitialized) {
+                gameTutorialManager.notifyCanvasMovedOrZoomed()
+            }
+        }
+
+        canvas.onBoxAddedListener = { kind ->
+            if (::gameTutorialManager.isInitialized) {
+                gameTutorialManager.notifyBoxAdded(kind)
+            }
+        }
+
+        canvas.onBoxMovedListener = {
+            if (::gameTutorialManager.isInitialized) {
+                gameTutorialManager.notifyBoxSelectedAndMoved()
+            }
+        }
+
+        canvas.onStrokeFinishedListener = {
+            if (::gameTutorialManager.isInitialized) {
+                gameTutorialManager.notifyDrawingFinished()
+            }
+        }
+
+        canvas.onEraserFinishedListener = {
+            if (::gameTutorialManager.isInitialized) {
+                gameTutorialManager.notifyEraserFinished()
+            }
         }
 
         canvas.onOpenSubBoardRequested = { subBoardId ->
@@ -673,6 +828,9 @@ class MainActivity : AppCompatActivity() {
 
         canvas.onConnectorCreated = {
             showThemedToast("Connected!", R.drawable.ic_tool_connect)
+            if (::gameTutorialManager.isInitialized) {
+                gameTutorialManager.notifyConnectorCreated()
+            }
             minimapView.invalidate()
         }
 
@@ -755,12 +913,34 @@ class MainActivity : AppCompatActivity() {
         // Collapsible Dock
         btnCollapseDock.setOnClickListener {
             closeToolSettingsPanel()
-            bottomDock.visibility = View.GONE
-            btnExpandDock.visibility = View.VISIBLE
+            bottomDock.animate()
+                .translationY(bottomDock.height.toFloat().coerceAtLeast(60f * resources.displayMetrics.density))
+                .alpha(0f)
+                .setDuration(180)
+                .withEndAction {
+                    bottomDock.visibility = View.GONE
+                    btnExpandDock.visibility = View.VISIBLE
+                    btnExpandDock.alpha = 0f
+                    btnExpandDock.animate().alpha(1f).setDuration(140).start()
+                }
+                .start()
         }
         btnExpandDock.setOnClickListener {
-            bottomDock.visibility = View.VISIBLE
-            btnExpandDock.visibility = View.GONE
+            btnExpandDock.animate()
+                .alpha(0f)
+                .setDuration(140)
+                .withEndAction {
+                    btnExpandDock.visibility = View.GONE
+                    bottomDock.visibility = View.VISIBLE
+                    bottomDock.translationY = bottomDock.height.toFloat().coerceAtLeast(60f * resources.displayMetrics.density)
+                    bottomDock.alpha = 0f
+                    bottomDock.animate()
+                        .translationY(0f)
+                        .alpha(1f)
+                        .setDuration(200)
+                        .start()
+                }
+                .start()
         }
 
         selectTool(CanvasTool.SELECT)
@@ -832,6 +1012,9 @@ class MainActivity : AppCompatActivity() {
 
         btnMinimap.setOnClickListener {
             toggleMinimap()
+            if (::gameTutorialManager.isInitialized) {
+                gameTutorialManager.notifyMinimapOpened()
+            }
         }
 
         btnZoomFit.setOnClickListener { canvas.zoomToFit() }
@@ -841,17 +1024,42 @@ class MainActivity : AppCompatActivity() {
 
         // Collapsible Top Bar
         btnCollapseTopBar.setOnClickListener {
-            topBar.visibility = View.GONE
-            btnExpandTopBar.visibility = View.VISIBLE
+            topBar.animate()
+                .translationY(-topBar.height.toFloat().coerceAtLeast(60f * resources.displayMetrics.density))
+                .alpha(0f)
+                .setDuration(180)
+                .withEndAction {
+                    topBar.visibility = View.GONE
+                    btnExpandTopBar.visibility = View.VISIBLE
+                    btnExpandTopBar.alpha = 0f
+                    btnExpandTopBar.animate().alpha(1f).setDuration(140).start()
+                }
+                .start()
         }
         btnExpandTopBar.setOnClickListener {
-            topBar.visibility = View.VISIBLE
-            btnExpandTopBar.visibility = View.GONE
+            btnExpandTopBar.animate()
+                .alpha(0f)
+                .setDuration(140)
+                .withEndAction {
+                    btnExpandTopBar.visibility = View.GONE
+                    topBar.visibility = View.VISIBLE
+                    topBar.translationY = -topBar.height.toFloat().coerceAtLeast(60f * resources.displayMetrics.density)
+                    topBar.alpha = 0f
+                    topBar.animate()
+                        .translationY(0f)
+                        .alpha(1f)
+                        .setDuration(200)
+                        .start()
+                }
+                .start()
         }
     }
 
     private fun openCanvasSearch() {
         searchBarContainer.visibility = View.VISIBLE
+        if (::gameTutorialManager.isInitialized) {
+            gameTutorialManager.notifySearchOpened()
+        }
         etCanvasSearch.requestFocus()
         val imm = getSystemService(INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
         imm?.showSoftInput(etCanvasSearch, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
@@ -945,13 +1153,18 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupUndoRedo() {
         undoRedoManager.onStateChanged = { canUndo, canRedo ->
-            val themeColors = ThemeManager.getThemeColors(appSettings.theme)
+            val themeColors = if (canvasContainer.visibility == View.VISIBLE) canvas.themeColors else ThemeManager.getThemeColors(appSettings.theme)
             val activeColor = themeColors.topBarText
             val disabledColor = if (themeColors.isDark) Color.parseColor("#475569") else Color.parseColor("#CBD5E1")
             btnUndo.isEnabled = canUndo
             btnUndo.imageTintList = ColorStateList.valueOf(if (canUndo) activeColor else disabledColor)
             btnRedo.isEnabled = canRedo
             btnRedo.imageTintList = ColorStateList.valueOf(if (canRedo) activeColor else disabledColor)
+
+            // Autosave after every canvas action, undo, and redo
+            if (canvasContainer.visibility == View.VISIBLE) {
+                triggerAutoSave(immediate = true)
+            }
         }
         btnUndo.setOnClickListener { undoRedoManager.undo() }
         btnRedo.setOnClickListener { undoRedoManager.redo() }
@@ -1032,12 +1245,70 @@ class MainActivity : AppCompatActivity() {
         selectionBarDivider.setBackgroundColor(colors.cardBorder)
         minimapView.applyTheme(colors)
 
+        // Zoom HUD Theming
+        zoomHud.background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 16f * resources.displayMetrics.density
+            setColor(colors.dockBg)
+            setStroke((1.5f * resources.displayMetrics.density).toInt(), colors.cardBorder)
+        }
+        btnZoomOut.setTextColor(colors.topBarText)
+        tvZoomPercent.setTextColor(colors.accent)
+        btnZoomIn.setTextColor(colors.topBarText)
+        btnZoomFitHud.setTextColor(colors.topBarText)
+
+        // Floating Contextual Tool Settings Panel Theming
+        toolSettingsPanel.background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 16f * resources.displayMetrics.density
+            setColor(colors.dockBg)
+            setStroke((1.5f * resources.displayMetrics.density).toInt(), colors.cardBorder)
+        }
+        tvToolSettingsTitle.setTextColor(colors.topBarText)
+        btnCloseToolSettings.imageTintList = ColorStateList.valueOf(mutedIconColor)
+
+        val modeBtnBg = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 8f * resources.displayMetrics.density
+            setColor(if (colors.isDark) Color.parseColor("#1E293B") else Color.parseColor("#F1F5F9"))
+            setStroke((1f * resources.displayMetrics.density).toInt(), colors.cardBorder)
+        }
+        btnDrawLayer.background = modeBtnBg.constantState?.newDrawable()?.mutate()
+        btnDrawLayer.setTextColor(colors.topBarText)
+        btnConnectMode.background = modeBtnBg.constantState?.newDrawable()?.mutate()
+        btnConnectMode.setTextColor(colors.topBarText)
+        btnConnectLayer.background = modeBtnBg.constantState?.newDrawable()?.mutate()
+        btnConnectLayer.setTextColor(colors.topBarText)
+
+        btnClearCanvasInk.background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 8f * resources.displayMetrics.density
+            setColor(if (colors.isDark) Color.parseColor("#450A0A") else Color.parseColor("#FEF2F2"))
+            setStroke((1f * resources.displayMetrics.density).toInt(), Color.parseColor("#EF4444"))
+        }
+        btnClearCanvasInk.setTextColor(Color.parseColor("#EF4444"))
+
+        btnClearCanvasArrows.background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 8f * resources.displayMetrics.density
+            setColor(if (colors.isDark) Color.parseColor("#450A0A") else Color.parseColor("#FEF2F2"))
+            setStroke((1f * resources.displayMetrics.density).toInt(), Color.parseColor("#EF4444"))
+        }
+        btnClearCanvasArrows.setTextColor(Color.parseColor("#EF4444"))
+
+        updateDrawSizeUI()
+        updateEraserSizeUI()
+        updateConnectorStyleUI()
+
         // Ground Expand Pill
         btnExpandDock.backgroundTintList = ColorStateList.valueOf(colors.dockBg)
         btnExpandDock.imageTintList = ColorStateList.valueOf(colors.accent)
 
         // Refresh Undo/Redo button tints
         undoRedoManager.onStateChanged?.invoke(undoRedoManager.canUndo, undoRedoManager.canRedo)
+        if (::gameTutorialHud.isInitialized) {
+            gameTutorialHud.applyTheme(colors.accent, colors.isDark)
+        }
         updateToolSettingsButtonState()
     }
 
@@ -1066,11 +1337,11 @@ class MainActivity : AppCompatActivity() {
         btnHomeImport.imageTintList = ColorStateList.valueOf(colors.accent)
         btnHomeSettings.imageTintList = ColorStateList.valueOf(colors.accent)
 
-        // 3. Search Bar
+        // 3. Search Bar (Scaled with density)
         layoutHomeSearch.background = GradientDrawable().apply {
             setColor(colors.cardDefaultBg)
-            setStroke(3, colors.cardBorder)
-            cornerRadius = 28f
+            setStroke((1.5f * resources.displayMetrics.density).toInt(), colors.cardBorder)
+            cornerRadius = 24f * resources.displayMetrics.density
         }
         ivHomeSearchIcon.imageTintList = ColorStateList.valueOf(if (colors.isDark) Color.parseColor("#64748B") else Color.parseColor("#94A3B8"))
         etHomeSearch.setTextColor(colors.topBarText)
@@ -1109,10 +1380,12 @@ class MainActivity : AppCompatActivity() {
             .addItem("Default Font", subtitle = appSettings.defaultFont.replaceFirstChar { it.uppercase() }) {
                 showDefaultFontDialog()
             }
-            .addItem("Re-run Guided Tutorial", subtitle = "Interactive walkthrough of canvas tools") {
-                TutorialDialog(this, appSettings) {
-                    showThemedToast("Tutorial finished!")
-                }.show()
+            .addItem("Interactive Game Tutorial", subtitle = "Master all 13 tools & practice in playground") {
+                val playgroundBoard = boardManager.getOrCreatePlaygroundBoard()
+                showCanvasScreen(playgroundBoard.meta.id)
+                canvas.postDelayed({
+                    gameTutorialManager.startTutorial(gameTutorialHud)
+                }, 350)
             }
             .addItem("About NoteApp", subtitle = "Flagship Personal Infinite Canvas") {
                 showAboutDialog()
@@ -1278,7 +1551,24 @@ class MainActivity : AppCompatActivity() {
         fun applyEraserSize(radius: Float) {
             canvas.bgDrawingOverlay.eraserRadius = radius
             canvas.fgDrawingOverlay.eraserRadius = radius
+            canvas.eraserRadius = radius
             updateEraserSizeUI()
+        }
+
+        btnEraserTargetInk.setOnClickListener {
+            canvas.eraserMode = EraserMode.INK
+            updateEraserTargetUI()
+            showThemedToast("Eraser: Pen Ink Only", R.drawable.ic_tool_eraser)
+        }
+        btnEraserTargetArrows.setOnClickListener {
+            canvas.eraserMode = EraserMode.ARROWS
+            updateEraserTargetUI()
+            showThemedToast("Eraser: Arrows Only", R.drawable.ic_tool_eraser)
+        }
+        btnEraserTargetAll.setOnClickListener {
+            canvas.eraserMode = EraserMode.ALL
+            updateEraserTargetUI()
+            showThemedToast("Eraser: Ink & Arrows", R.drawable.ic_tool_eraser)
         }
 
         btnEraserSizeS.setOnClickListener { applyEraserSize(16f) }
@@ -1299,6 +1589,19 @@ class MainActivity : AppCompatActivity() {
                 .show()
         }
 
+        btnClearCanvasArrows.setOnClickListener {
+            ThemedDialog.Builder(this, canvas.themeColors)
+                .setTitle("Clear Canvas Arrows")
+                .setMessage("Are you sure you want to delete all connectors and arrows on this board?")
+                .setPositiveButton("Clear All") {
+                    canvas.clearAllArrows()
+                    showThemedToast("All arrows cleared", R.drawable.ic_tool_eraser)
+                    closeToolSettingsPanel()
+                }
+                .setNegativeButton("Cancel")
+                .show()
+        }
+
         // --- CONNECTOR / ARROW PANEL SETUP ---
         btnConnectMode.setOnClickListener {
             canvas.isFreeArrowMode = !canvas.isFreeArrowMode
@@ -1311,6 +1614,7 @@ class MainActivity : AppCompatActivity() {
 
         btnTailNone.setOnClickListener { canvas.selectedTailStyle = "none"; updateConnectorStyleUI() }
         btnTailArrow.setOnClickListener { canvas.selectedTailStyle = "triangle"; updateConnectorStyleUI() }
+        btnTailOpen.setOnClickListener { canvas.selectedTailStyle = "open"; updateConnectorStyleUI() }
         btnTailDot.setOnClickListener { canvas.selectedTailStyle = "dot"; updateConnectorStyleUI() }
         btnTailDiamond.setOnClickListener { canvas.selectedTailStyle = "diamond"; updateConnectorStyleUI() }
         btnTailBar.setOnClickListener { canvas.selectedTailStyle = "bar"; updateConnectorStyleUI() }
@@ -1319,6 +1623,7 @@ class MainActivity : AppCompatActivity() {
         btnHeadOpen.setOnClickListener { canvas.selectedHeadStyle = "open"; updateConnectorStyleUI() }
         btnHeadDot.setOnClickListener { canvas.selectedHeadStyle = "dot"; updateConnectorStyleUI() }
         btnHeadDiamond.setOnClickListener { canvas.selectedHeadStyle = "diamond"; updateConnectorStyleUI() }
+        btnHeadBar.setOnClickListener { canvas.selectedHeadStyle = "bar"; updateConnectorStyleUI() }
         btnHeadNone.setOnClickListener { canvas.selectedHeadStyle = "none"; updateConnectorStyleUI() }
 
         btnConnectLayer.setOnClickListener {
@@ -1371,7 +1676,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun closeToolSettingsPanel() {
         if (::toolSettingsPanel.isInitialized && toolSettingsPanel.visibility == View.VISIBLE) {
-            toolSettingsPanel.visibility = View.GONE
+            toolSettingsPanel.animate()
+                .alpha(0f)
+                .scaleX(0.95f)
+                .scaleY(0.95f)
+                .setDuration(160)
+                .withEndAction {
+                    toolSettingsPanel.visibility = View.GONE
+                }
+                .start()
         }
     }
 
@@ -1384,10 +1697,19 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (toolSettingsPanel.visibility == View.VISIBLE) {
-            toolSettingsPanel.visibility = View.GONE
+            closeToolSettingsPanel()
         } else {
             showToolSettingsForActiveTool()
             toolSettingsPanel.visibility = View.VISIBLE
+            toolSettingsPanel.alpha = 0f
+            toolSettingsPanel.scaleX = 0.95f
+            toolSettingsPanel.scaleY = 0.95f
+            toolSettingsPanel.animate()
+                .alpha(1f)
+                .scaleX(1f)
+                .scaleY(1f)
+                .setDuration(180)
+                .start()
         }
     }
 
@@ -1434,8 +1756,14 @@ class MainActivity : AppCompatActivity() {
                 tv.background = gd
                 tv.setTextColor(Color.WHITE)
             } else {
-                tv.setBackgroundResource(R.drawable.bg_tool_pill)
-                tv.setTextColor(Color.parseColor("#1E293B"))
+                val gd = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = 8 * resources.displayMetrics.density
+                    setColor(if (canvas.themeColors.isDark) Color.parseColor("#1E293B") else Color.parseColor("#F1F5F9"))
+                    setStroke((1 * resources.displayMetrics.density).toInt(), canvas.themeColors.cardBorder)
+                }
+                tv.background = gd
+                tv.setTextColor(canvas.themeColors.topBarText)
             }
         }
 
@@ -1453,8 +1781,36 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun updateEraserTargetUI() {
+        fun setPillSelected(tv: TextView, selected: Boolean) {
+            if (selected) {
+                val gd = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = 8 * resources.displayMetrics.density
+                    setColor(canvas.themeColors.accent)
+                }
+                tv.background = gd
+                tv.setTextColor(Color.WHITE)
+            } else {
+                val gd = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = 8 * resources.displayMetrics.density
+                    setColor(if (canvas.themeColors.isDark) Color.parseColor("#1E293B") else Color.parseColor("#F1F5F9"))
+                    setStroke((1 * resources.displayMetrics.density).toInt(), canvas.themeColors.cardBorder)
+                }
+                tv.background = gd
+                tv.setTextColor(canvas.themeColors.topBarText)
+            }
+        }
+
+        setPillSelected(btnEraserTargetInk, canvas.eraserMode == EraserMode.INK)
+        setPillSelected(btnEraserTargetArrows, canvas.eraserMode == EraserMode.ARROWS)
+        setPillSelected(btnEraserTargetAll, canvas.eraserMode == EraserMode.ALL)
+    }
+
     private fun updateEraserSizeUI() {
         val radius = canvas.bgDrawingOverlay.eraserRadius
+        updateEraserTargetUI()
 
         fun setPillSelected(tv: TextView, selected: Boolean) {
             if (selected) {
@@ -1466,8 +1822,14 @@ class MainActivity : AppCompatActivity() {
                 tv.background = gd
                 tv.setTextColor(Color.WHITE)
             } else {
-                tv.setBackgroundResource(R.drawable.bg_tool_pill)
-                tv.setTextColor(Color.parseColor("#1E293B"))
+                val gd = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = 8 * resources.displayMetrics.density
+                    setColor(if (canvas.themeColors.isDark) Color.parseColor("#1E293B") else Color.parseColor("#F1F5F9"))
+                    setStroke((1 * resources.displayMetrics.density).toInt(), canvas.themeColors.cardBorder)
+                }
+                tv.background = gd
+                tv.setTextColor(canvas.themeColors.topBarText)
             }
         }
 
@@ -1506,14 +1868,21 @@ class MainActivity : AppCompatActivity() {
                 tv.background = gd
                 tv.setTextColor(Color.WHITE)
             } else {
-                tv.setBackgroundResource(R.drawable.bg_tool_pill)
-                tv.setTextColor(Color.parseColor("#1E293B"))
+                val gd = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = 8 * resources.displayMetrics.density
+                    setColor(if (canvas.themeColors.isDark) Color.parseColor("#1E293B") else Color.parseColor("#F1F5F9"))
+                    setStroke((1 * resources.displayMetrics.density).toInt(), canvas.themeColors.cardBorder)
+                }
+                tv.background = gd
+                tv.setTextColor(canvas.themeColors.topBarText)
             }
         }
 
         // Tail pills
         setPillSelected(btnTailNone, canvas.selectedTailStyle == "none")
         setPillSelected(btnTailArrow, canvas.selectedTailStyle == "triangle")
+        setPillSelected(btnTailOpen, canvas.selectedTailStyle == "open")
         setPillSelected(btnTailDot, canvas.selectedTailStyle == "dot")
         setPillSelected(btnTailDiamond, canvas.selectedTailStyle == "diamond")
         setPillSelected(btnTailBar, canvas.selectedTailStyle == "bar")
@@ -1523,6 +1892,7 @@ class MainActivity : AppCompatActivity() {
         setPillSelected(btnHeadOpen, canvas.selectedHeadStyle == "open")
         setPillSelected(btnHeadDot, canvas.selectedHeadStyle == "dot")
         setPillSelected(btnHeadDiamond, canvas.selectedHeadStyle == "diamond")
+        setPillSelected(btnHeadBar, canvas.selectedHeadStyle == "bar")
         setPillSelected(btnHeadNone, canvas.selectedHeadStyle == "none")
     }
 
@@ -1550,6 +1920,17 @@ class MainActivity : AppCompatActivity() {
         val currentMeta = boardManager.getActiveMeta()
         val boardData = canvas.exportBoardData(currentMeta)
         boardManager.saveBoard(boardData)
+    }
+
+    private fun triggerAutoSave(immediate: Boolean) {
+        autoSaveRunnable?.let { autoSaveHandler.removeCallbacks(it) }
+        if (immediate) {
+            saveActiveBoard()
+        } else {
+            val r = Runnable { saveActiveBoard() }
+            autoSaveRunnable = r
+            autoSaveHandler.postDelayed(r, 300)
+        }
     }
 
     private fun updateBoardHeader() {
@@ -1706,9 +2087,6 @@ class MainActivity : AppCompatActivity() {
             }
             .addItem("Circle", subtitle = "Circular bubble / milestone") {
                 canvas.addBox(BoxKind.SHAPE, ShapeType.CIRCLE)
-            }
-            .addItem("Sticky Note", subtitle = "Square brainstorming memo") {
-                canvas.addBox(BoxKind.SHAPE, ShapeType.STICKY_NOTE)
             }
             .addItem("Diamond", subtitle = "Decision / process node") {
                 canvas.addBox(BoxKind.SHAPE, ShapeType.DIAMOND)
@@ -2215,6 +2593,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showBoardSubThemePickerDialog() {
+        if (::gameTutorialManager.isInitialized) {
+            gameTutorialManager.notifyThemeOpened()
+        }
         val meta = boardManager.getActiveMeta()
         val currentSubThemeId = meta.subThemeId
         val currentIsDark = meta.subThemeIsDark ?: false
@@ -2277,8 +2658,11 @@ class MainActivity : AppCompatActivity() {
     // ==================== EXPORT: DOWNLOAD (SAF FILE PICKER) & SHARE ====================
 
     private fun showDownloadDialog() {
-        if (canvas.boxCount() == 0 && canvas.bgDrawingOverlay.getAllStrokes().isEmpty() && canvas.fgDrawingOverlay.getAllStrokes().isEmpty()) {
-            showThemedToast("Add notes or sketches before downloading", R.drawable.ic_download)
+        if (::gameTutorialManager.isInitialized) {
+            gameTutorialManager.notifyExportOpened()
+        }
+        if (canvas.boxCount() == 0 && canvas.bgDrawingOverlay.getAllStrokes().isEmpty() && canvas.fgDrawingOverlay.getAllStrokes().isEmpty() && canvas.allConnectors().isEmpty()) {
+            showThemedToast("Add notes, sketches, or arrows before downloading", R.drawable.ic_download)
             return
         }
 
@@ -2304,8 +2688,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showShareDialog() {
-        if (canvas.boxCount() == 0 && canvas.bgDrawingOverlay.getAllStrokes().isEmpty() && canvas.fgDrawingOverlay.getAllStrokes().isEmpty()) {
-            showThemedToast("Add notes or sketches before sharing", R.drawable.ic_share)
+        if (::gameTutorialManager.isInitialized) {
+            gameTutorialManager.notifyExportOpened()
+        }
+        if (canvas.boxCount() == 0 && canvas.bgDrawingOverlay.getAllStrokes().isEmpty() && canvas.fgDrawingOverlay.getAllStrokes().isEmpty() && canvas.allConnectors().isEmpty()) {
+            showThemedToast("Add notes, sketches, or arrows before sharing", R.drawable.ic_share)
             return
         }
 

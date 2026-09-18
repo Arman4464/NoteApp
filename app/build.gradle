@@ -15,9 +15,20 @@ android {
         versionName "1.0"
     }
 
+    signingConfigs {
+        release {
+            storeFile file("release.keystore")
+            storePassword "noteapprelease2026"
+            keyAlias "noteapp"
+            keyPassword "noteapprelease2026"
+        }
+    }
+
     buildTypes {
         release {
+            debuggable false
             minifyEnabled false
+            signingConfig signingConfigs.release
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }

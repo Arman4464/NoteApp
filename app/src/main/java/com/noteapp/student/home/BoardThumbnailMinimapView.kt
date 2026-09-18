@@ -196,7 +196,6 @@ class BoardThumbnailMinimapView @JvmOverloads constructor(
                 BoxKind.SHAPE -> Color.parseColor("#F59E0B")
                 BoxKind.BOARD -> Color.parseColor("#8B5CF6")
                 BoxKind.LINK -> Color.parseColor("#3B82F6")
-                else -> Color.parseColor("#6366F1")
             }
 
             cardPaint.color = baseColor

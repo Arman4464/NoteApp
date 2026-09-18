@@ -273,9 +273,9 @@
             <!-- Board Selector Pill Button -->
             <LinearLayout
                 android:id="@+id/btnBoardSelector"
-                android:layout_width="0dp"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
+                android:layout_marginEnd="6dp"
                 android:background="?attr/selectableItemBackground"
                 android:clickable="true"
                 android:focusable="true"
@@ -306,95 +306,114 @@
                     android:textSize="12sp" />
             </LinearLayout>
 
-            <!-- Canvas Search & Jump Button on Ceiling -->
-            <ImageButton
-                android:id="@+id/btnCanvasSearch"
-                android:layout_width="38dp"
-                android:layout_height="38dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Search canvas"
-                android:src="@drawable/ic_search"
-                app:tint="#4F46E5" />
+            <!-- Scrollable Action Buttons Strip (Never crushed on any device) -->
+            <HorizontalScrollView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:fillViewport="true"
+                android:overScrollMode="never"
+                android:scrollbars="none">
 
-            <!-- Minimap HUD Button -->
-            <ImageButton
-                android:id="@+id/btnMinimap"
-                android:layout_width="38dp"
-                android:layout_height="38dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Minimap HUD"
-                android:src="@drawable/ic_minimap"
-                app:tint="#4F46E5" />
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="end|center_vertical"
+                    android:gravity="center_vertical|end"
+                    android:orientation="horizontal">
 
-            <!-- Undo Button -->
-            <ImageButton
-                android:id="@+id/btnUndo"
-                android:layout_width="38dp"
-                android:layout_height="38dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Undo"
-                android:src="@drawable/ic_undo"
-                app:tint="#64748B" />
+                    <!-- Canvas Search & Jump Button on Ceiling -->
+                    <ImageButton
+                        android:id="@+id/btnCanvasSearch"
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="Search canvas"
+                        android:src="@drawable/ic_search"
+                        app:tint="#4F46E5" />
 
-            <!-- Redo Button -->
-            <ImageButton
-                android:id="@+id/btnRedo"
-                android:layout_width="38dp"
-                android:layout_height="38dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Redo"
-                android:src="@drawable/ic_redo"
-                app:tint="#64748B" />
+                    <!-- Minimap HUD Button -->
+                    <ImageButton
+                        android:id="@+id/btnMinimap"
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="Minimap HUD"
+                        android:src="@drawable/ic_minimap"
+                        app:tint="#4F46E5" />
 
-            <!-- Zoom to Fit Button -->
-            <ImageButton
-                android:id="@+id/btnZoomFit"
-                android:layout_width="38dp"
-                android:layout_height="38dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Zoom to fit"
-                android:src="@drawable/ic_zoom_fit"
-                app:tint="#1E293B" />
+                    <!-- Undo Button -->
+                    <ImageButton
+                        android:id="@+id/btnUndo"
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="Undo"
+                        android:src="@drawable/ic_undo"
+                        app:tint="#64748B" />
 
-            <!-- Download Button (SAF File Picker: Select Directory & Name) -->
-            <ImageButton
-                android:id="@+id/btnDownload"
-                android:layout_width="38dp"
-                android:layout_height="38dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Download board"
-                android:src="@drawable/ic_download"
-                app:tint="#059669" />
+                    <!-- Redo Button -->
+                    <ImageButton
+                        android:id="@+id/btnRedo"
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="Redo"
+                        android:src="@drawable/ic_redo"
+                        app:tint="#64748B" />
 
-            <!-- Share Button (System Share Sheet) -->
-            <ImageButton
-                android:id="@+id/btnShare"
-                android:layout_width="38dp"
-                android:layout_height="38dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Share board"
-                android:src="@drawable/ic_share"
-                app:tint="#0284C7" />
+                    <!-- Zoom to Fit Button -->
+                    <ImageButton
+                        android:id="@+id/btnZoomFit"
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="Zoom to fit"
+                        android:src="@drawable/ic_zoom_fit"
+                        app:tint="#1E293B" />
 
-            <!-- Board Options Menu Button -->
-            <ImageButton
-                android:id="@+id/btnMenu"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="More options"
-                android:src="@drawable/ic_more_vert"
-                app:tint="#1E293B" />
+                    <!-- Download Button (SAF File Picker: Select Directory & Name) -->
+                    <ImageButton
+                        android:id="@+id/btnDownload"
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="Download board"
+                        android:src="@drawable/ic_download"
+                        app:tint="#059669" />
 
-            <!-- Top Bar Collapse Button (▲) -->
-            <ImageButton
-                android:id="@+id/btnCollapseTopBar"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Collapse top bar"
-                android:src="@drawable/ic_collapse_up"
-                app:tint="#94A3B8" />
+                    <!-- Share Button (System Share Sheet) -->
+                    <ImageButton
+                        android:id="@+id/btnShare"
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="Share board"
+                        android:src="@drawable/ic_share"
+                        app:tint="#0284C7" />
+
+                    <!-- Board Options Menu Button -->
+                    <ImageButton
+                        android:id="@+id/btnMenu"
+                        android:layout_width="34dp"
+                        android:layout_height="34dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="More options"
+                        android:src="@drawable/ic_more_vert"
+                        app:tint="#1E293B" />
+
+                    <!-- Top Bar Collapse Button (▲) -->
+                    <ImageButton
+                        android:id="@+id/btnCollapseTopBar"
+                        android:layout_width="30dp"
+                        android:layout_height="30dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="Collapse top bar"
+                        android:src="@drawable/ic_collapse_up"
+                        app:tint="#94A3B8" />
+
+                </LinearLayout>
+            </HorizontalScrollView>
 
         </LinearLayout>
 
@@ -474,42 +493,6 @@
                 app:tint="#94A3B8" />
         </LinearLayout>
 
-        <!-- Themed Top HUD Notification Pill -->
-        <LinearLayout
-            android:id="@+id/hudNotificationBar"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="top|center_horizontal"
-            android:layout_marginTop="52dp"
-            android:background="@drawable/bg_selection_bar"
-            android:elevation="16dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingStart="16dp"
-            android:paddingTop="8dp"
-            android:paddingEnd="16dp"
-            android:paddingBottom="8dp"
-            android:visibility="gone">
-
-            <ImageView
-                android:id="@+id/ivHudIcon"
-                android:layout_width="18dp"
-                android:layout_height="18dp"
-                android:src="@drawable/ic_boards"
-                app:tint="#FFFFFF" />
-
-            <TextView
-                android:id="@+id/tvHudMessage"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:maxLines="1"
-                android:singleLine="true"
-                android:text="Action Completed"
-                android:textColor="#FFFFFF"
-                android:textSize="13sp"
-                android:textStyle="bold" />
-        </LinearLayout>
 
         <!-- Ceiling-Attached Expand Top Bar Pill (▼) -->
         <ImageButton
@@ -656,6 +639,16 @@
                 android:textSize="13sp" />
         </LinearLayout>
 
+        <!-- Interactive Game Tutorial HUD Card -->
+        <com.noteapp.student.tutorial.GameTutorialHudView
+            android:id="@+id/gameTutorialHud"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|center_horizontal"
+            android:layout_marginTop="56dp"
+            android:elevation="26dp"
+            android:visibility="gone" />
+
         <!-- Floating Zoom HUD Controller (Bottom-Left) -->
         <LinearLayout
             android:id="@+id/zoomHud"
@@ -663,7 +656,7 @@
             android:layout_height="wrap_content"
             android:layout_gravity="bottom|start"
             android:layout_marginStart="12dp"
-            android:layout_marginBottom="56dp"
+            android:layout_marginBottom="76dp"
             android:background="@drawable/bg_zoom_hud"
             android:elevation="10dp"
             android:gravity="center_vertical"
@@ -729,7 +722,7 @@
             android:layout_height="wrap_content"
             android:layout_gravity="bottom|end"
             android:layout_marginEnd="12dp"
-            android:layout_marginBottom="54dp"
+            android:layout_marginBottom="76dp"
             android:background="@drawable/bg_tool_settings_panel"
             android:elevation="16dp"
             android:padding="12dp"
@@ -889,6 +882,58 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginBottom="4dp"
+                        android:text="Erase Target"
+                        android:textColor="#64748B"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="32dp"
+                        android:gravity="center"
+                        android:layout_marginBottom="8dp"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:id="@+id/btnEraserTargetInk"
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_marginEnd="4dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/bg_tool_pill"
+                            android:gravity="center"
+                            android:text="Pen Ink"
+                            android:textColor="#1E293B"
+                            android:textSize="11sp" />
+
+                        <TextView
+                            android:id="@+id/btnEraserTargetArrows"
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_marginEnd="4dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/bg_tool_pill"
+                            android:gravity="center"
+                            android:text="Arrows"
+                            android:textColor="#1E293B"
+                            android:textSize="11sp" />
+
+                        <TextView
+                            android:id="@+id/btnEraserTargetAll"
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_weight="1"
+                            android:background="@drawable/bg_tool_pill"
+                            android:gravity="center"
+                            android:text="All"
+                            android:textColor="#1E293B"
+                            android:textSize="11sp" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="4dp"
                         android:text="Eraser Size"
                         android:textColor="#64748B"
                         android:textSize="11sp"
@@ -943,6 +988,17 @@
                         android:layout_marginTop="10dp"
                         android:background="@drawable/bg_danger_pill"
                         android:text="🗑 Clear All Ink"
+                        android:textAllCaps="false"
+                        android:textColor="#EF4444"
+                        android:textSize="11sp" />
+
+                    <Button
+                        android:id="@+id/btnClearCanvasArrows"
+                        android:layout_width="match_parent"
+                        android:layout_height="36dp"
+                        android:layout_marginTop="6dp"
+                        android:background="@drawable/bg_danger_pill"
+                        android:text="🗑 Clear All Arrows"
                         android:textAllCaps="false"
                         android:textColor="#EF4444"
                         android:textSize="11sp" />
@@ -1002,7 +1058,19 @@
                             android:layout_weight="1"
                             android:background="@drawable/bg_tool_pill"
                             android:gravity="center"
-                            android:text="←"
+                            android:text="◀"
+                            android:textColor="#1E293B"
+                            android:textSize="13sp" />
+
+                        <TextView
+                            android:id="@+id/btnTailOpen"
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_marginEnd="2dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/bg_tool_pill"
+                            android:gravity="center"
+                            android:text="&lt;"
                             android:textColor="#1E293B"
                             android:textSize="13sp" />
 
@@ -1078,7 +1146,7 @@
                             android:layout_weight="1"
                             android:background="@drawable/bg_tool_pill"
                             android:gravity="center"
-                            android:text=">"
+                            android:text="&gt;"
                             android:textColor="#1E293B"
                             android:textSize="13sp" />
 
@@ -1103,6 +1171,18 @@
                             android:background="@drawable/bg_tool_pill"
                             android:gravity="center"
                             android:text="◆"
+                            android:textColor="#1E293B"
+                            android:textSize="13sp" />
+
+                        <TextView
+                            android:id="@+id/btnHeadBar"
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_marginEnd="2dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/bg_tool_pill"
+                            android:gravity="center"
+                            android:text="|"
                             android:textColor="#1E293B"
                             android:textSize="13sp" />
 
@@ -1273,6 +1353,86 @@
             android:visibility="gone"
             app:tint="#4F46E5" />
 
+        <!-- Themed Canvas Loading Overlay (Smooth board transition feedback) -->
+        <FrameLayout
+            android:id="@+id/canvasLoadingOverlay"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#0F172A"
+            android:clickable="true"
+            android:focusable="true"
+            android:elevation="28dp"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:gravity="center"
+                android:orientation="vertical">
+
+                <ImageView
+                    android:id="@+id/ivLoadingLogo"
+                    android:layout_width="64dp"
+                    android:layout_height="64dp"
+                    android:src="@drawable/ic_launcher_clean_foreground" />
+
+                <ProgressBar
+                    android:id="@+id/pbCanvasLoading"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_marginTop="20dp"
+                    android:indeterminateTint="#4F46E5" />
+
+                <TextView
+                    android:id="@+id/tvLoadingStatus"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:text="Opening Workspace..."
+                    android:textColor="#F8FAFC"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+        </FrameLayout>
+
     </FrameLayout>
+
+    <!-- Universal Themed Top HUD Notification Pill (Floats over both Home and Canvas) -->
+    <LinearLayout
+        android:id="@+id/hudNotificationBar"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="52dp"
+        android:background="@drawable/bg_selection_bar"
+        android:elevation="32dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="16dp"
+        android:paddingTop="8dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="8dp"
+        android:visibility="gone">
+
+        <ImageView
+            android:id="@+id/ivHudIcon"
+            android:layout_width="18dp"
+            android:layout_height="18dp"
+            android:src="@drawable/ic_boards"
+            app:tint="#FFFFFF" />
+
+        <TextView
+            android:id="@+id/tvHudMessage"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:maxLines="1"
+            android:singleLine="true"
+            android:text="Action Completed"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+    </LinearLayout>
 
 </FrameLayout>

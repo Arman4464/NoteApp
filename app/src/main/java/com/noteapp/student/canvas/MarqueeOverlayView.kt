@@ -39,6 +39,12 @@ class MarqueeOverlayView(context: Context, attrs: AttributeSet? = null) : View(c
         invalidate()
     }
 
+    fun applyTheme(accentColor: Int) {
+        borderPaint.color = accentColor
+        fillPaint.color = Color.argb(45, Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor))
+        invalidate()
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         if (isVisible && !marqueeRect.isEmpty) {

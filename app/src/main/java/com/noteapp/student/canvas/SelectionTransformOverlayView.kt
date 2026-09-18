@@ -94,6 +94,13 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
         invalidate()
     }
 
+    fun applyTheme(colors: com.noteapp.student.settings.ThemeColors) {
+        borderPaint.color = colors.accent
+        handleStrokePaint.color = colors.accent
+        headingPaint.color = colors.topBarText
+        invalidate()
+    }
+
     private fun updateGeometry(box: NoteBoxView) {
         val l = box.data.x
         val t = box.data.y

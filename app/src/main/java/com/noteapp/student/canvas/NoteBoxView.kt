@@ -76,6 +76,7 @@ class NoteBoxView(
     private var activeEditText: EditText? = null
 
     var onColorChanged: ((box: NoteBoxView, oldColor: Int, newColor: Int) -> Unit)? = null
+    var onContentChanged: (() -> Unit)? = null
 
     // Geometric vector shape rendering
     private val shapeFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -111,7 +112,7 @@ class NoteBoxView(
         setWillNotDraw(false)
         updateBackgroundShape()
         clipToPadding = false
-        elevation = 8f
+        elevation = 0f
 
         // Content Container fills 100% of card surface with no solid header taking space
         contentContainer = when (data.kind) {
@@ -460,6 +461,7 @@ class NoteBoxView(
     // ---------- Content builders ----------
 
     private fun buildTextContent(): EditText {
+        val density = resources.displayMetrics.density
         val isDark = themeColors?.isDark ?: false
         val et = EditText(context).apply {
             hint = "Type your note..."
@@ -468,7 +470,8 @@ class NoteBoxView(
             gravity = Gravity.TOP or Gravity.START
             setTextColor(resolveTextColor())
             textSize = data.fontSizeSp
-            setPadding(20, 20, 20, 20)
+            val pad = (16 * density).toInt()
+            setPadding(pad, pad, pad, pad)
             setText(data.text)
             movementMethod = ScrollingMovementMethod.getInstance()
             typeface = resolveTypeface()
@@ -482,6 +485,7 @@ class NoteBoxView(
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
             override fun afterTextChanged(s: Editable?) {
                 data.text = s?.toString() ?: ""
+                onContentChanged?.invoke()
             }
         })
         et.setOnFocusChangeListener { _, hasFocus ->
@@ -556,9 +560,10 @@ class NoteBoxView(
     }
 
     private fun buildTableContent(): View {
+        val density = resources.displayMetrics.density
         val vScroll = ScrollView(context).apply {
             clipToPadding = false
-            setPadding(0, 0, 0, 16)
+            setPadding(0, 0, 0, (16 * density).toInt())
         }
         val hScroll = HorizontalScrollView(context).apply {
             clipToPadding = false
@@ -566,7 +571,7 @@ class NoteBoxView(
         }
         tableContainer = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(12, 12, 12, 24)
+            setPadding((16 * density).toInt(), (18 * density).toInt(), (16 * density).toInt(), (24 * density).toInt())
         }
         hScroll.addView(tableContainer)
         vScroll.addView(hScroll)
@@ -624,7 +629,7 @@ class NoteBoxView(
             }
             if (showRowHeaders) {
                 val corner = TextView(context).apply {
-                    layoutParams = LinearLayout.LayoutParams((44 * density).toInt(), (32 * density).toInt())
+                    layoutParams = LinearLayout.LayoutParams((44 * density).toInt(), (36 * density).toInt())
                     background = GradientDrawable().apply {
                         shape = GradientDrawable.RECTANGLE
                         setColor(headerBg)
@@ -640,10 +645,12 @@ class NoteBoxView(
                 val defaultColLabel = getColHeaderLabel(c, table.colHeaders)
 
                 val th = EditText(context).apply {
-                    layoutParams = LinearLayout.LayoutParams((84 * density).toInt(), (32 * density).toInt())
+                    layoutParams = LinearLayout.LayoutParams((84 * density).toInt(), (36 * density).toInt())
                     setText(colLabel)
                     hint = defaultColLabel
                     textSize = 12f
+                    includeFontPadding = false
+                    setPadding((4 * density).toInt(), 0, (4 * density).toInt(), 0)
                     setTypeface(null, Typeface.BOLD)
                     setTextColor(headerTextColor)
                     setHintTextColor(if (isDark) Color.parseColor("#64748B") else Color.parseColor("#94A3B8"))
@@ -661,6 +668,7 @@ class NoteBoxView(
                     override fun afterTextChanged(s: Editable?) {
                         while (table.customColLabels.size <= c) table.customColLabels.add("")
                         table.customColLabels[c] = s?.toString() ?: ""
+                        onContentChanged?.invoke()
                     }
                 })
                 th.setOnFocusChangeListener { _, _ -> onTextFocusChanged() }
@@ -692,6 +700,8 @@ class NoteBoxView(
                     setText(rowLabel)
                     hint = defaultRowLabel
                     textSize = 12f
+                    includeFontPadding = false
+                    setPadding((4 * density).toInt(), 0, (4 * density).toInt(), 0)
                     setTypeface(null, Typeface.BOLD)
                     setTextColor(headerTextColor)
                     setHintTextColor(if (isDark) Color.parseColor("#64748B") else Color.parseColor("#94A3B8"))
@@ -709,6 +719,7 @@ class NoteBoxView(
                     override fun afterTextChanged(s: Editable?) {
                         while (table.customRowLabels.size <= r) table.customRowLabels.add("")
                         table.customRowLabels[r] = s?.toString() ?: ""
+                        onContentChanged?.invoke()
                     }
                 })
                 rh.setOnFocusChangeListener { _, _ -> onTextFocusChanged() }
@@ -726,6 +737,7 @@ class NoteBoxView(
                     layoutParams = LinearLayout.LayoutParams((84 * density).toInt(), (40 * density).toInt())
                     setText(table.cells[r][c])
                     textSize = data.fontSizeSp.coerceIn(11f, 18f)
+                    includeFontPadding = false
                     setTextColor(textColor)
                     setHintTextColor(if (isDark) Color.parseColor("#64748B") else Color.parseColor("#94A3B8"))
                     hint = "..."
@@ -744,6 +756,7 @@ class NoteBoxView(
                     override fun afterTextChanged(s: Editable?) {
                         if (r < table.cells.size && c < table.cells[r].size) {
                             table.cells[r][c] = s?.toString() ?: ""
+                            onContentChanged?.invoke()
                         }
                     }
                 })
@@ -782,6 +795,7 @@ class NoteBoxView(
                 table.rows++
                 table.cells.add(MutableList(table.cols) { "" })
                 rebuildTable()
+                onContentChanged?.invoke()
             }
         }
         val btnAddCol = TextView(context).apply {
@@ -808,6 +822,7 @@ class NoteBoxView(
                     row.add("")
                 }
                 rebuildTable()
+                onContentChanged?.invoke()
             }
         }
         controlsLayout.addView(btnAddRow)
@@ -927,6 +942,7 @@ class NoteBoxView(
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
             override fun afterTextChanged(s: Editable?) {
                 data.text = s?.toString() ?: ""
+                onContentChanged?.invoke()
             }
         })
         layout.addView(linkEdit)
@@ -973,6 +989,7 @@ class NoteBoxView(
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
                 override fun afterTextChanged(s: Editable?) {
                     item.text = s?.toString() ?: ""
+                    onContentChanged?.invoke()
                 }
             })
             itemEdit.setOnFocusChangeListener { _, _ -> onTextFocusChanged() }
@@ -989,6 +1006,7 @@ class NoteBoxView(
                 } else {
                     itemEdit.paintFlags and Paint.STRIKE_THRU_TEXT_FLAG.inv()
                 }
+                onContentChanged?.invoke()
             }
             val removeBtn = TextView(context).apply {
                 text = "✕"
@@ -997,6 +1015,7 @@ class NoteBoxView(
                 setOnClickListener {
                     data.checklist.remove(item)
                     rebuildChecklist()
+                    onContentChanged?.invoke()
                 }
             }
             row.addView(checkBox)
@@ -1020,6 +1039,7 @@ class NoteBoxView(
             setOnClickListener {
                 data.checklist.add(ChecklistItem())
                 rebuildChecklist()
+                onContentChanged?.invoke()
             }
         }
         checklistContainer.addView(addRow)
@@ -1113,10 +1133,6 @@ class NoteBoxView(
             }
 
         if (data.kind == BoxKind.SHAPE) {
-            builder.addItem("Sticky Note Shape", subtitle = "Square memo shape", isSelected = (data.shapeType == ShapeType.STICKY_NOTE)) {
-                data.shapeType = ShapeType.STICKY_NOTE
-                updateBackgroundShape()
-            }
             builder.addItem("Rounded Rectangle", subtitle = "Modern rounded card", isSelected = (data.shapeType == ShapeType.ROUNDED_RECT)) {
                 data.shapeType = ShapeType.ROUNDED_RECT
                 updateBackgroundShape()
@@ -1195,18 +1211,21 @@ class NoteBoxView(
         if (recordUndo && old != color) {
             onColorChanged?.invoke(this, old, color)
         }
+        onContentChanged?.invoke()
     }
 
     fun setTextColor(color: Int) {
         if (data.kind != BoxKind.TEXT && data.kind != BoxKind.SHAPE) return
         data.textColor = color
         (contentContainer as? EditText)?.setTextColor(color)
+        onContentChanged?.invoke()
     }
 
     fun setTextBgColor(color: Int) {
         if (data.kind != BoxKind.TEXT && data.kind != BoxKind.SHAPE) return
         data.textBgColor = color
         contentContainer.setBackgroundColor(color)
+        onContentChanged?.invoke()
     }
 
     fun setFontSize(sp: Float) {
@@ -1214,12 +1233,14 @@ class NoteBoxView(
         val clamped = sp.coerceIn(10f, 48f)
         data.fontSizeSp = clamped
         (contentContainer as? EditText)?.textSize = clamped
+        onContentChanged?.invoke()
     }
 
     fun setFontFamily(family: String) {
         if (data.kind != BoxKind.TEXT && data.kind != BoxKind.SHAPE) return
         data.fontFamily = family
         (contentContainer as? EditText)?.typeface = resolveTypeface()
+        onContentChanged?.invoke()
     }
 
     fun cycleFontFamily() {
@@ -1235,12 +1256,14 @@ class NoteBoxView(
             else -> "outfit"
         }
         (contentContainer as? EditText)?.typeface = resolveTypeface()
+        onContentChanged?.invoke()
     }
 
     fun toggleBold() {
         if (data.kind != BoxKind.TEXT && data.kind != BoxKind.SHAPE) return
         data.bold = !data.bold
         (contentContainer as? EditText)?.typeface = resolveTypeface()
+        onContentChanged?.invoke()
     }
 
     fun toggleItalic() {

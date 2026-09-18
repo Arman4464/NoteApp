@@ -186,7 +186,8 @@ class ThemedDialog private constructor(
                         shape = GradientDrawable.RECTANGLE
                         cornerRadius = 10 * density
                         if (item.isSelected) {
-                            setColor(if (theme.isDark) Color.parseColor("#1E293B") else Color.parseColor("#EEF2FF"))
+                            val lightTint = Color.argb(28, Color.red(theme.accent), Color.green(theme.accent), Color.blue(theme.accent))
+                            setColor(if (theme.isDark) Color.parseColor("#1E293B") else lightTint)
                             setStroke((1.5f * density).toInt(), theme.accent)
                         } else {
                             setColor(Color.TRANSPARENT)

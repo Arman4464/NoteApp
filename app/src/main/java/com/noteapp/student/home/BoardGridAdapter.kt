@@ -14,6 +14,7 @@ import com.noteapp.student.R
 import com.noteapp.student.canvas.BoardManager
 import com.noteapp.student.canvas.BoardMeta
 import com.noteapp.student.canvas.BoxKind
+import com.noteapp.student.settings.BoardSubTheme
 import com.noteapp.student.settings.ThemeColors
 import com.noteapp.student.util.ThemedDialog
 import java.text.SimpleDateFormat
@@ -72,28 +73,31 @@ class BoardGridAdapter(
 
             // Load board data to feed living minimap and breakdown stats
             val boardData = try { boardManager.loadBoard(board.id) } catch (e: Exception) { null }
+
+            // Resolve board-specific subtheme (with global fallback)
+            val fallback = themeColors ?: ThemeColors.modernClean()
+            val boardColors = BoardSubTheme.resolveThemeColors(board.subThemeId, board.subThemeIsDark, fallback = fallback)
+
             minimapThumbnail.boardData = boardData
-            minimapThumbnail.themeColors = themeColors
+            minimapThumbnail.themeColors = boardColors
 
             // Apply Theme to Card
-            themeColors?.let { colors ->
-                cardBoardRoot.setCardBackgroundColor(colors.cardDefaultBg)
-                cardBoardRoot.strokeColor = colors.cardBorder
-                cardBoardRoot.strokeWidth = 3 // ~1.5dp
+            cardBoardRoot.setCardBackgroundColor(boardColors.cardDefaultBg)
+            cardBoardRoot.strokeColor = boardColors.cardBorder
+            cardBoardRoot.strokeWidth = 3 // ~1.5dp
 
-                tvBoardTitle.setTextColor(colors.topBarText)
-                val subColor = if (colors.isDark) Color.parseColor("#94A3B8") else Color.parseColor("#64748B")
-                tvBoardCreated.setTextColor(subColor)
-                tvBoardUpdated.setTextColor(subColor)
-                tvBoardDetails.setTextColor(colors.accent)
-                btnBoardCardMenu.imageTintList = ColorStateList.valueOf(subColor)
+            tvBoardTitle.setTextColor(boardColors.topBarText)
+            val subColor = if (boardColors.isDark) Color.parseColor("#94A3B8") else Color.parseColor("#64748B")
+            tvBoardCreated.setTextColor(subColor)
+            tvBoardUpdated.setTextColor(subColor)
+            tvBoardDetails.setTextColor(boardColors.accent)
+            btnBoardCardMenu.imageTintList = ColorStateList.valueOf(subColor)
 
-                tvCardCountBadge.background = GradientDrawable().apply {
-                    setColor(colors.accent)
-                    cornerRadius = 24f
-                }
-                tvCardCountBadge.setTextColor(Color.WHITE)
+            tvCardCountBadge.background = GradientDrawable().apply {
+                setColor(boardColors.accent)
+                cornerRadius = 24f * itemView.resources.displayMetrics.density
             }
+            tvCardCountBadge.setTextColor(Color.WHITE)
 
             if (boardData != null) {
                 val boxes = boardData.boxes
@@ -125,8 +129,7 @@ class BoardGridAdapter(
             }
 
             btnBoardCardMenu.setOnClickListener {
-                val colors = themeColors ?: ThemeColors.modernClean()
-                ThemedDialog.Builder(itemView.context, colors)
+                ThemedDialog.Builder(itemView.context, boardColors)
                     .setTitle(board.name)
                     .addItem("Rename", subtitle = "Change board title") { onRenameClick(board) }
                     .addItem("Duplicate", subtitle = "Make a duplicate copy of this board") { onDuplicateClick(board) }

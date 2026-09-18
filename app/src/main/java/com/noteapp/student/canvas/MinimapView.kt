@@ -54,14 +54,13 @@ class MinimapView @JvmOverloads constructor(
 
     fun applyTheme(colors: ThemeColors) {
         themeColors = colors
-        val isDark = colors.isDark
-        if (isDark) {
-            bgPaint.color = Color.argb(235, 15, 23, 42)
-            borderPaint.color = colors.cardBorder
-        } else {
-            bgPaint.color = Color.argb(235, 248, 250, 252)
-            borderPaint.color = colors.cardBorder
-        }
+        bgPaint.color = Color.argb(
+            230,
+            Color.red(colors.topBarBg),
+            Color.green(colors.topBarBg),
+            Color.blue(colors.topBarBg)
+        )
+        borderPaint.color = colors.cardBorder
         val r = Color.red(colors.accent)
         val g = Color.green(colors.accent)
         val b = Color.blue(colors.accent)

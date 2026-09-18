@@ -27,6 +27,12 @@ import kotlin.math.min
  * - Directional connector links
  * - Scaled dynamic dot grid background
  */
+enum class EraserMode {
+    INK,
+    ARROWS,
+    ALL
+}
+
 class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameLayout(context, attrs) {
 
     companion object {
@@ -36,22 +42,42 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
     }
 
     val contentLayer: FrameLayout = FrameLayout(context)
-    val connectorOverlay: ConnectorOverlayView = ConnectorOverlayView(context)
+    val connectorOverlay: ConnectorOverlayView = ConnectorOverlayView(context).apply {
+        renderForegroundOnly = false
+    }
+    val fgConnectorOverlay: ConnectorOverlayView = ConnectorOverlayView(context).apply {
+        renderForegroundOnly = true
+    }
     val bgDrawingOverlay: DrawingOverlayView = DrawingOverlayView(context)
     val fgDrawingOverlay: DrawingOverlayView = DrawingOverlayView(context)
+
+    var eraserMode: EraserMode = EraserMode.INK
+    var eraserRadius: Float = 28f
+    private val activeStrokeErasedConnectors = mutableListOf<ConnectorData>()
+
     var isDrawingOnForeground: Boolean = false
         set(value) {
             field = value
             updateToolState()
             if (value) {
-                fgDrawingOverlay.bringToFront()
-                selectionOverlay.bringToFront()
-                marqueeOverlay.bringToFront()
+                maintainLayerOrder()
             }
         }
     val drawingOverlay: DrawingOverlayView get() = if (isDrawingOnForeground) fgDrawingOverlay else bgDrawingOverlay
     val marqueeOverlay: MarqueeOverlayView = MarqueeOverlayView(context)
     val selectionOverlay: SelectionTransformOverlayView = SelectionTransformOverlayView(context)
+
+    fun maintainLayerOrder() {
+        fgConnectorOverlay.bringToFront()
+        fgDrawingOverlay.bringToFront()
+        selectionOverlay.bringToFront()
+        marqueeOverlay.bringToFront()
+    }
+
+    fun invalidateConnectors() {
+        connectorOverlay.invalidate()
+        fgConnectorOverlay.invalidate()
+    }
 
     private val boxes = mutableListOf<NoteBoxView>()
     private val connectors = mutableListOf<ConnectorData>()
@@ -74,6 +100,12 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
     var onSelectionChanged: ((selectedCount: Int) -> Unit)? = null
     var onOpenSubBoardRequested: ((boardId: String) -> Unit)? = null
     var onBackgroundTapped: (() -> Unit)? = null
+    var onContentChanged: (() -> Unit)? = null
+    var onBoxAddedListener: ((BoxKind) -> Unit)? = null
+    var onBoxMovedListener: (() -> Unit)? = null
+    var onCanvasPanZoomListener: (() -> Unit)? = null
+    var onStrokeFinishedListener: (() -> Unit)? = null
+    var onEraserFinishedListener: (() -> Unit)? = null
     var defaultConnectorStyle: String = "arrow"
     var defaultConnectorColor: Int = Color.parseColor("#6366F1")
     var isFreeArrowMode: Boolean = false
@@ -146,6 +178,7 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
                 contentLayer.scaleX = scale
                 contentLayer.scaleY = scale
                 onScaleChanged?.invoke(scale)
+                onCanvasPanZoomListener?.invoke()
                 invalidate() // Redraw grid with new scale
                 return true
             }
@@ -169,6 +202,7 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
         )
         connectorOverlay.boxProvider = { boxes }
         connectorOverlay.connectorProvider = { connectors }
+        connectorOverlay.renderForegroundOnly = false
 
         // Layer 2: Freehand drawing strokes (Background layer - under cards)
         contentLayer.addView(
@@ -180,6 +214,7 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
                 override fun execute() { bgDrawingOverlay.addStroke(stroke) }
                 override fun undo() { bgDrawingOverlay.removeStroke(stroke.id) }
             })
+            onStrokeFinishedListener?.invoke()
         }
         bgDrawingOverlay.onStrokesErased = { erased ->
             undoRedoManager?.record(object : CanvasCommand {
@@ -190,9 +225,19 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
                     for (s in erased) bgDrawingOverlay.addStroke(s)
                 }
             })
+            onEraserFinishedListener?.invoke()
         }
 
-        // Layer 3: Freehand drawing strokes (Foreground layer - over cards)
+        // Layer 3: Connectors (Foreground layer - over cards)
+        contentLayer.addView(
+            fgConnectorOverlay,
+            LayoutParams(WORLD_SIZE.toInt(), WORLD_SIZE.toInt())
+        )
+        fgConnectorOverlay.boxProvider = { boxes }
+        fgConnectorOverlay.connectorProvider = { connectors }
+        fgConnectorOverlay.renderForegroundOnly = true
+
+        // Layer 4: Freehand drawing strokes (Foreground layer - over cards)
         contentLayer.addView(
             fgDrawingOverlay,
             LayoutParams(WORLD_SIZE.toInt(), WORLD_SIZE.toInt())
@@ -202,6 +247,7 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
                 override fun execute() { fgDrawingOverlay.addStroke(stroke) }
                 override fun undo() { fgDrawingOverlay.removeStroke(stroke.id) }
             })
+            onStrokeFinishedListener?.invoke()
         }
         fgDrawingOverlay.onStrokesErased = { erased ->
             undoRedoManager?.record(object : CanvasCommand {
@@ -212,6 +258,7 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
                     for (s in erased) fgDrawingOverlay.addStroke(s)
                 }
             })
+            onEraserFinishedListener?.invoke()
         }
 
         // Layer 4: MS Paint 8-handle Selection and Transform Overlay
@@ -222,7 +269,7 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
         selectionOverlay.onBoxMoved = { dx, dy -> handleBoxMoved(dx, dy) }
         selectionOverlay.onBoxMoveFinished = { handleBoxMoveFinished() }
         selectionOverlay.onBoxResized = {
-            connectorOverlay.invalidate()
+            invalidateConnectors()
             handleBoxResized()
         }
         selectionOverlay.onBoxResizeFinished = { box, oldX, oldY, oldW, oldH ->
@@ -244,7 +291,7 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
                         lp.height = finalH.toInt()
                         box.layoutParams = lp
                         selectionOverlay.invalidate()
-                        connectorOverlay.invalidate()
+                        invalidateConnectors()
                     }
                     override fun undo() {
                         box.data.x = oldX
@@ -258,7 +305,7 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
                         lp.height = oldH.toInt()
                         box.layoutParams = lp
                         selectionOverlay.invalidate()
-                        connectorOverlay.invalidate()
+                        invalidateConnectors()
                     }
                 })
             }
@@ -286,7 +333,8 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
         setBackgroundColor(colors.canvasBg)
         dotPaint.color = colors.gridDot
         lineGridPaint.color = colors.gridDot
-        selectionOverlay.updateTheme(colors.topBarText)
+        selectionOverlay.applyTheme(colors)
+        marqueeOverlay.applyTheme(colors.accent)
         invalidate()
     }
 
@@ -379,11 +427,50 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
 
         // Freehand drawing / erasing
         if (activeTool == CanvasTool.DRAW || activeTool == CanvasTool.ERASER) {
-            val activeOverlay = if (isDrawingOnForeground) fgDrawingOverlay else bgDrawingOverlay
-            activeOverlay.handleDrawingTouchEvent(event, contentX, contentY)
-            if (activeTool == CanvasTool.ERASER) {
-                val otherOverlay = if (isDrawingOnForeground) bgDrawingOverlay else fgDrawingOverlay
-                otherOverlay.handleDrawingTouchEvent(event, contentX, contentY)
+            if (activeTool == CanvasTool.DRAW) {
+                val activeOverlay = if (isDrawingOnForeground) fgDrawingOverlay else bgDrawingOverlay
+                activeOverlay.handleDrawingTouchEvent(event, contentX, contentY)
+                return true
+            }
+
+            // CanvasTool.ERASER
+            if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                activeStrokeErasedConnectors.clear()
+            }
+
+            if (eraserMode == EraserMode.INK || eraserMode == EraserMode.ALL) {
+                bgDrawingOverlay.handleDrawingTouchEvent(event, contentX, contentY)
+                fgDrawingOverlay.handleDrawingTouchEvent(event, contentX, contentY)
+            }
+
+            if (eraserMode == EraserMode.ARROWS || eraserMode == EraserMode.ALL) {
+                if (event.actionMasked == MotionEvent.ACTION_DOWN || event.actionMasked == MotionEvent.ACTION_MOVE) {
+                    val hit = eraseConnectorsAt(contentX, contentY, radius = eraserRadius)
+                    if (hit.isNotEmpty()) {
+                        activeStrokeErasedConnectors.addAll(hit)
+                    }
+                }
+            }
+
+            if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+                if (activeStrokeErasedConnectors.isNotEmpty()) {
+                    val toUndo = activeStrokeErasedConnectors.toList()
+                    activeStrokeErasedConnectors.clear()
+                    undoRedoManager?.record(object : CanvasCommand {
+                        override fun execute() {
+                            connectors.removeAll(toUndo)
+                            invalidateConnectors()
+                            onContentChanged?.invoke()
+                        }
+                        override fun undo() {
+                            connectors.addAll(toUndo)
+                            invalidateConnectors()
+                            onContentChanged?.invoke()
+                        }
+                    })
+                    onEraserFinishedListener?.invoke()
+                    onContentChanged?.invoke()
+                }
             }
             return true
         }
@@ -407,7 +494,8 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
                         isForeground = isArrowForeground
                     )
                     connectorOverlay.previewArrow = preview
-                    connectorOverlay.invalidate()
+                    fgConnectorOverlay.previewArrow = preview
+                    invalidateConnectors()
                     return true
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -416,7 +504,11 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
                             it.endX = contentX
                             it.endY = contentY
                         }
-                        connectorOverlay.invalidate()
+                        fgConnectorOverlay.previewArrow?.let {
+                            it.endX = contentX
+                            it.endY = contentY
+                        }
+                        invalidateConnectors()
                         return true
                     }
                 }
@@ -424,7 +516,8 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
                     if (isDrawingFreeArrow) {
                         isDrawingFreeArrow = false
                         connectorOverlay.previewArrow = null
-                        connectorOverlay.invalidate()
+                        fgConnectorOverlay.previewArrow = null
+                        invalidateConnectors()
                         val dist = kotlin.math.hypot(
                             (contentX - freeArrowStartX).toDouble(),
                             (contentY - freeArrowStartY).toDouble()
@@ -442,22 +535,25 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
                                 isForeground = isArrowForeground
                             )
                             connectors.add(newArrow)
-                            connectorOverlay.invalidate()
+                            invalidateConnectors()
                             undoRedoManager?.record(object : CanvasCommand {
                                 override fun execute() {
                                     if (!connectors.contains(newArrow)) connectors.add(newArrow)
-                                    connectorOverlay.invalidate()
+                                    invalidateConnectors()
                                 }
                                 override fun undo() {
                                     connectors.remove(newArrow)
-                                    connectorOverlay.invalidate()
+                                    invalidateConnectors()
                                 }
                             })
+                            onConnectorCreated?.invoke()
+                            onContentChanged?.invoke()
                         }
                         return true
                     }
                 }
             }
+            return true
         }
 
         // Natural Navigation & 1-finger canvas panning:
@@ -484,6 +580,9 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
                     lastPanY = event.y
                     invalidate()
                     onScaleChanged?.invoke(scale)
+                    if (hasPannedSignificant) {
+                        onCanvasPanZoomListener?.invoke()
+                    }
                 }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_UP -> {
@@ -562,6 +661,7 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
         marqueeOverlay.bringToFront()
         selectionOverlay.invalidate()
         onSelectionChanged?.invoke(selectedBoxes.size)
+        onBoxAddedListener?.invoke(kind)
 
         if (kind == BoxKind.TEXT || kind == BoxKind.SHAPE) {
             box.post { box.focusTextInput() }
@@ -573,10 +673,8 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
                 if (!boxes.contains(box)) {
                     boxes.add(box)
                     contentLayer.addView(box)
-                    fgDrawingOverlay.bringToFront()
-                    selectionOverlay.bringToFront()
-                    marqueeOverlay.bringToFront()
-                    connectorOverlay.invalidate()
+                    maintainLayerOrder()
+                    invalidateConnectors()
                 }
             }
             override fun undo() {
@@ -612,11 +710,10 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
                 }
             })
         }
+        box.onContentChanged = { onContentChanged?.invoke() }
         boxes.add(box)
         contentLayer.addView(box)
-        fgDrawingOverlay.bringToFront()
-        selectionOverlay.bringToFront()
-        marqueeOverlay.bringToFront()
+        maintainLayerOrder()
         box.themeColors = themeColors
         box.setConnectMode(activeTool == CanvasTool.CONNECT)
         return box
@@ -631,9 +728,7 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
         boxes.remove(box)
         boxes.add(box)
         box.bringToFront()
-        fgDrawingOverlay.bringToFront()
-        selectionOverlay.bringToFront()
-        marqueeOverlay.bringToFront()
+        maintainLayerOrder()
 
         if (!selectedBoxes.contains(box)) {
             clearSelection()
@@ -658,7 +753,7 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
             selected.applyMoveDelta(dx, dy)
         }
         selectionOverlay.invalidate()
-        connectorOverlay.invalidate()
+        invalidateConnectors()
     }
 
     private fun handleBoxMoveFinished() {
@@ -678,9 +773,15 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
                 }
             }
             selectionOverlay.invalidate()
-            connectorOverlay.invalidate()
+            invalidateConnectors()
 
             val final = selectedBoxes.associate { it.data.id to Pair(it.data.x, it.data.y) }
+            val moved = initial.any { (id, pos) ->
+                final[id]?.let { f -> f.first != pos.first || f.second != pos.second } ?: false
+            }
+            if (moved) {
+                onBoxMovedListener?.invoke()
+            }
             moveStartPositions.clear()
 
             undoRedoManager?.record(object : CanvasCommand {
@@ -694,7 +795,7 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
                         }
                     }
                     selectionOverlay.invalidate()
-                    connectorOverlay.invalidate()
+                    invalidateConnectors()
                 }
                 override fun undo() {
                     for (box in boxes) {
@@ -706,7 +807,7 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
                         }
                     }
                     selectionOverlay.invalidate()
-                    connectorOverlay.invalidate()
+                    invalidateConnectors()
                 }
             })
         }
@@ -714,7 +815,7 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
 
     private fun handleBoxResized() {
         selectionOverlay.invalidate()
-        connectorOverlay.invalidate()
+        invalidateConnectors()
     }
 
     // ---------- Multi-Select Operations ----------
@@ -770,7 +871,7 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
                     addBoxFromData(d.copyDeep())
                 }
                 connectors.addAll(affectedConnectors)
-                connectorOverlay.invalidate()
+                invalidateConnectors()
             }
         })
     }
@@ -822,10 +923,8 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
                         contentLayer.addView(v)
                     }
                 }
-                fgDrawingOverlay.bringToFront()
-                selectionOverlay.bringToFront()
-                marqueeOverlay.bringToFront()
-                connectorOverlay.invalidate()
+                maintainLayerOrder()
+                invalidateConnectors()
             }
             override fun undo() {
                 for (v in duplicatedViews) {
@@ -853,10 +952,53 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
         connectors.removeAll { it.fromId == box.data.id || it.toId == box.data.id }
         contentLayer.removeView(box)
         if (firstSelectedForConnect === box) firstSelectedForConnect = null
-        connectorOverlay.invalidate()
+        invalidateConnectors()
     }
 
     // ---------- Connectors ----------
+
+    fun eraseConnectorsAt(cx: Float, cy: Float, radius: Float): List<ConnectorData> {
+        val boxMap = boxes.associateBy { it.data.id }
+        val hitList = mutableListOf<ConnectorData>()
+        val iter = connectors.iterator()
+        while (iter.hasNext()) {
+            val conn = iter.next()
+            val from = if (conn.fromId.isNotBlank()) boxMap[conn.fromId]?.data else null
+            val to = if (conn.toId.isNotBlank()) boxMap[conn.toId]?.data else null
+            val dist = ConnectorOverlayView.distToConnector(cx, cy, conn, from, to)
+            if (dist <= radius) {
+                hitList.add(conn)
+                iter.remove()
+            }
+        }
+        if (hitList.isNotEmpty()) {
+            invalidateConnectors()
+            performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
+        }
+        return hitList
+    }
+
+    fun clearAllArrows(recordUndo: Boolean = true) {
+        if (connectors.isEmpty()) return
+        val saved = connectors.toList()
+        connectors.clear()
+        invalidateConnectors()
+        onContentChanged?.invoke()
+        if (recordUndo) {
+            undoRedoManager?.record(object : CanvasCommand {
+                override fun execute() {
+                    connectors.removeAll(saved)
+                    invalidateConnectors()
+                    onContentChanged?.invoke()
+                }
+                override fun undo() {
+                    connectors.addAll(saved)
+                    invalidateConnectors()
+                    onContentChanged?.invoke()
+                }
+            })
+        }
+    }
 
     private fun handleConnectSelection(box: NoteBoxView) {
         val current = firstSelectedForConnect
@@ -876,17 +1018,17 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
             connectors.add(newConn)
             current.setHighlighted(false)
             firstSelectedForConnect = null
-            connectorOverlay.invalidate()
+            invalidateConnectors()
             onConnectorCreated?.invoke()
 
             undoRedoManager?.record(object : CanvasCommand {
                 override fun execute() {
                     if (!connectors.contains(newConn)) connectors.add(newConn)
-                    connectorOverlay.invalidate()
+                    invalidateConnectors()
                 }
                 override fun undo() {
                     connectors.remove(newConn)
-                    connectorOverlay.invalidate()
+                    invalidateConnectors()
                 }
             })
         }
@@ -902,12 +1044,12 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
             b.data.x = minX
             b.x = minX
         }
-        connectorOverlay.invalidate()
+        invalidateConnectors()
 
         undoRedoManager?.record(object : CanvasCommand {
             override fun execute() {
                 for (b in selectedBoxes) { b.data.x = minX; b.x = minX }
-                connectorOverlay.invalidate()
+                invalidateConnectors()
             }
             override fun undo() {
                 for (b in selectedBoxes) {
@@ -915,7 +1057,7 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
                         b.data.x = px; b.x = px
                     }
                 }
-                connectorOverlay.invalidate()
+                invalidateConnectors()
             }
         })
     }
@@ -928,12 +1070,12 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
             b.data.y = minY
             b.y = minY
         }
-        connectorOverlay.invalidate()
+        invalidateConnectors()
 
         undoRedoManager?.record(object : CanvasCommand {
             override fun execute() {
                 for (b in selectedBoxes) { b.data.y = minY; b.y = minY }
-                connectorOverlay.invalidate()
+                invalidateConnectors()
             }
             override fun undo() {
                 for (b in selectedBoxes) {
@@ -941,7 +1083,7 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
                         b.data.y = py; b.y = py
                     }
                 }
-                connectorOverlay.invalidate()
+                invalidateConnectors()
             }
         })
     }
@@ -960,7 +1102,7 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
             sorted[i].data.x = targetX
             sorted[i].x = targetX
         }
-        connectorOverlay.invalidate()
+        invalidateConnectors()
 
         undoRedoManager?.record(object : CanvasCommand {
             override fun execute() {
@@ -969,7 +1111,7 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
                     sorted[i].data.x = targetX
                     sorted[i].x = targetX
                 }
-                connectorOverlay.invalidate()
+                invalidateConnectors()
             }
             override fun undo() {
                 for (b in selectedBoxes) {
@@ -977,7 +1119,7 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
                         b.data.x = px; b.x = px
                     }
                 }
-                connectorOverlay.invalidate()
+                invalidateConnectors()
             }
         })
     }
@@ -1062,7 +1204,7 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
         bgDrawingOverlay.clearStrokes()
         fgDrawingOverlay.clearStrokes()
         firstSelectedForConnect = null
-        connectorOverlay.invalidate()
+        invalidateConnectors()
         onSelectionChanged?.invoke(0)
     }
 
@@ -1087,7 +1229,8 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
                     connectors.addAll(savedConnectors.map { it.copy() })
                     bgDrawingOverlay.setStrokes(savedBgStrokes.map { it.copyDeep() })
                     fgDrawingOverlay.setStrokes(savedFgStrokes.map { it.copyDeep() })
-                    connectorOverlay.invalidate()
+                    maintainLayerOrder()
+                    invalidateConnectors()
                 }
             })
         } else {
@@ -1159,7 +1302,8 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
             addBoxFromData(bd)
         }
         connectors.addAll(board.connectors)
-        connectorOverlay.invalidate()
+        maintainLayerOrder()
+        invalidateConnectors()
         bgDrawingOverlay.setStrokes(board.strokes)
         fgDrawingOverlay.setStrokes(board.fgStrokes)
 

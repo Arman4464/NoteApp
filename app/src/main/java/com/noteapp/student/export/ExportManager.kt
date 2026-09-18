@@ -50,12 +50,14 @@ object ExportManager {
         fgStrokes: List<DrawingStrokeData> = emptyList(),
         themeColors: ThemeColors? = null
     ): Bitmap? {
-        if (boxes.isEmpty() && strokes.isEmpty() && fgStrokes.isEmpty()) return null
+        if (boxes.isEmpty() && strokes.isEmpty() && fgStrokes.isEmpty() && connectors.isEmpty()) return null
 
         var minX = Float.POSITIVE_INFINITY
         var minY = Float.POSITIVE_INFINITY
         var maxX = Float.NEGATIVE_INFINITY
         var maxY = Float.NEGATIVE_INFINITY
+
+        val boxMap = boxes.associateBy { it.data.id }
 
         for (box in boxes) {
             minX = min(minX, box.data.x)
@@ -82,10 +84,38 @@ object ExportManager {
             }
         }
 
+        for (conn in connectors) {
+            if (conn.isFreeArrow) {
+                val pad = conn.strokeWidth + 30f
+                minX = min(minX, min(conn.startX, conn.endX) - pad)
+                minY = min(minY, min(conn.startY, conn.endY) - pad)
+                maxX = max(maxX, max(conn.startX, conn.endX) + pad)
+                maxY = max(maxY, max(conn.startY, conn.endY) + pad)
+            } else {
+                val from = boxMap[conn.fromId]?.data
+                val to = boxMap[conn.toId]?.data
+                if (from != null && to != null) {
+                    val toCenterX = to.x + to.width / 2f
+                    val toCenterY = to.y + to.height / 2f
+                    val fromCenterX = from.x + from.width / 2f
+                    val fromCenterY = from.y + from.height / 2f
+                    val (x1, y1) = ConnectorOverlayView.getBoxEdgePoint(from, toCenterX, toCenterY)
+                    val (x2, y2) = ConnectorOverlayView.getBoxEdgePoint(to, fromCenterX, fromCenterY)
+                    val (ctrlX, ctrlY) = ConnectorOverlayView.getConnectorControlPoint(x1, y1, x2, y2)
+                    val pad = conn.strokeWidth + 30f
+                    minX = min(minX, minOf(x1, x2, ctrlX) - pad)
+                    minY = min(minY, minOf(y1, y2, ctrlY) - pad)
+                    maxX = max(maxX, maxOf(x1, x2, ctrlX) + pad)
+                    maxY = max(maxY, maxOf(y1, y2, ctrlY) + pad)
+                }
+            }
+        }
+
         minX -= PADDING; minY -= PADDING; maxX += PADDING; maxY += PADDING
 
         val contentWidth = maxX - minX
         val contentHeight = maxY - minY
+        if (contentWidth <= 0f || contentHeight <= 0f) return null
 
         var scale = RENDER_SCALE
         val naturalW = contentWidth * scale
@@ -101,37 +131,25 @@ object ExportManager {
 
         val bitmap = Bitmap.createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
+        canvas.drawFilter = android.graphics.PaintFlagsDrawFilter(0, Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+
         val bgColor = themeColors?.canvasBg ?: Color.WHITE
         canvas.drawColor(bgColor)
 
-        // 1. Draw Connectors
-        val boxMap = boxes.associateBy { it.data.id }
         val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            strokeWidth = 5f * scale
             style = Paint.Style.STROKE
             strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
         }
-        val arrowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        val arrowFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.FILL
         }
-
-        for (conn in connectors) {
-            val from = boxMap[conn.fromId] ?: continue
-            val to = boxMap[conn.toId] ?: continue
-            linePaint.color = conn.color
-            arrowPaint.color = conn.color
-
-            val (edge1X, edge1Y) = ConnectorOverlayView.getBoxEdgePoint(from.data, to.data.x + to.data.width / 2f, to.data.y + to.data.height / 2f)
-            val (edge2X, edge2Y) = ConnectorOverlayView.getBoxEdgePoint(to.data, from.data.x + from.data.width / 2f, from.data.y + from.data.height / 2f)
-
-            val x1 = (edge1X - minX) * scale
-            val y1 = (edge1Y - minY) * scale
-            val x2 = (edge2X - minX) * scale
-            val y2 = (edge2Y - minY) * scale
-            drawCurvedArrow(canvas, x1, y1, x2, y2, linePaint, arrowPaint, scale)
+        val arrowStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
         }
 
-        // 2. Draw Freehand Strokes
         val penPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             strokeCap = Paint.Cap.ROUND
@@ -143,49 +161,77 @@ object ExportManager {
             strokeJoin = Paint.Join.BEVEL
         }
 
-        for (stroke in strokes) {
-            if (stroke.points.isEmpty()) continue
-            val paint = if (stroke.isHighlighter) {
-                highlighterPaint.apply {
-                    color = stroke.color
-                    alpha = 110
-                    strokeWidth = stroke.width * 2.5f * scale
+        fun drawStrokesList(strokeList: List<DrawingStrokeData>) {
+            for (stroke in strokeList) {
+                if (stroke.points.isEmpty()) continue
+                val paint = if (stroke.isHighlighter) {
+                    highlighterPaint.apply {
+                        color = stroke.color
+                        alpha = 110
+                        strokeWidth = stroke.width * 2.5f * scale
+                    }
+                } else {
+                    penPaint.apply {
+                        color = stroke.color
+                        alpha = 255
+                        strokeWidth = stroke.width * scale
+                    }
                 }
-            } else {
-                penPaint.apply {
-                    color = stroke.color
-                    alpha = 255
-                    strokeWidth = stroke.width * scale
+
+                if (stroke.points.size == 1) {
+                    val pt = stroke.points[0]
+                    val sx = (pt.first - minX) * scale
+                    val sy = (pt.second - minY) * scale
+                    canvas.drawCircle(sx, sy, (stroke.width / 2f) * scale, paint)
+                    continue
                 }
-            }
 
-            if (stroke.points.size == 1) {
-                val pt = stroke.points[0]
-                val sx = (pt.first - minX) * scale
-                val sy = (pt.second - minY) * scale
-                canvas.drawCircle(sx, sy, (stroke.width / 2f) * scale, paint)
-                continue
+                val path = Path()
+                val first = stroke.points[0]
+                path.moveTo((first.first - minX) * scale, (first.second - minY) * scale)
+                for (i in 1 until stroke.points.size) {
+                    val p0 = stroke.points[i - 1]
+                    val p1 = stroke.points[i]
+                    val midX = ((p0.first + p1.first) / 2f - minX) * scale
+                    val midY = ((p0.second + p1.second) / 2f - minY) * scale
+                    path.quadTo(
+                        (p0.first - minX) * scale, (p0.second - minY) * scale,
+                        midX, midY
+                    )
+                }
+                val last = stroke.points.last()
+                path.lineTo((last.first - minX) * scale, (last.second - minY) * scale)
+                canvas.drawPath(path, paint)
             }
-
-            val path = Path()
-            val first = stroke.points[0]
-            path.moveTo((first.first - minX) * scale, (first.second - minY) * scale)
-            for (i in 1 until stroke.points.size) {
-                val p0 = stroke.points[i - 1]
-                val p1 = stroke.points[i]
-                val midX = ((p0.first + p1.first) / 2f - minX) * scale
-                val midY = ((p0.second + p1.second) / 2f - minY) * scale
-                path.quadTo(
-                    (p0.first - minX) * scale, (p0.second - minY) * scale,
-                    midX, midY
-                )
-            }
-            val last = stroke.points.last()
-            path.lineTo((last.first - minX) * scale, (last.second - minY) * scale)
-            canvas.drawPath(path, paint)
         }
 
-        // 3. Draw Note Boxes on top
+        fun drawConnectorsList(connList: List<ConnectorData>) {
+            canvas.save()
+            canvas.translate(-minX * scale, -minY * scale)
+            for (conn in connList) {
+                val from = if (conn.fromId.isNotBlank()) boxMap[conn.fromId]?.data else null
+                val to = if (conn.toId.isNotBlank()) boxMap[conn.toId]?.data else null
+                ConnectorOverlayView.renderConnectorDirect(
+                    canvas,
+                    conn,
+                    from,
+                    to,
+                    scale = scale,
+                    linePaint,
+                    arrowFillPaint,
+                    arrowStrokePaint
+                )
+            }
+            canvas.restore()
+        }
+
+        // LAYER 1: Background Connectors (behind cards)
+        drawConnectorsList(connectors.filter { !it.isForeground })
+
+        // LAYER 2: Background Freehand Strokes (behind cards)
+        drawStrokesList(strokes)
+
+        // LAYER 3: Note Boxes (cards, text, checklists, shapes, images)
         for (box in boxes) {
             box.setExportMode(true)
             canvas.save()
@@ -196,83 +242,13 @@ object ExportManager {
             box.setExportMode(false)
         }
 
-        // 4. Draw Foreground Freehand Strokes (on top of boxes)
-        for (stroke in fgStrokes) {
-            if (stroke.points.isEmpty()) continue
-            val paint = if (stroke.isHighlighter) {
-                highlighterPaint.apply {
-                    color = stroke.color
-                    alpha = 110
-                    strokeWidth = stroke.width * 2.5f * scale
-                }
-            } else {
-                penPaint.apply {
-                    color = stroke.color
-                    alpha = 255
-                    strokeWidth = stroke.width * scale
-                }
-            }
+        // LAYER 4: Foreground Connectors (over cards and images)
+        drawConnectorsList(connectors.filter { it.isForeground })
 
-            if (stroke.points.size == 1) {
-                val pt = stroke.points[0]
-                val sx = (pt.first - minX) * scale
-                val sy = (pt.second - minY) * scale
-                canvas.drawCircle(sx, sy, (stroke.width / 2f) * scale, paint)
-                continue
-            }
-
-            val path = Path()
-            val first = stroke.points[0]
-            path.moveTo((first.first - minX) * scale, (first.second - minY) * scale)
-            for (i in 1 until stroke.points.size) {
-                val p0 = stroke.points[i - 1]
-                val p1 = stroke.points[i]
-                val midX = ((p0.first + p1.first) / 2f - minX) * scale
-                val midY = ((p0.second + p1.second) / 2f - minY) * scale
-                path.quadTo(
-                    (p0.first - minX) * scale, (p0.second - minY) * scale,
-                    midX, midY
-                )
-            }
-            val last = stroke.points.last()
-            path.lineTo((last.first - minX) * scale, (last.second - minY) * scale)
-            canvas.drawPath(path, paint)
-        }
+        // LAYER 5: Foreground Freehand Strokes (over cards and images)
+        drawStrokesList(fgStrokes)
 
         return bitmap
-    }
-
-    private fun drawCurvedArrow(
-        canvas: Canvas, x1: Float, y1: Float, x2: Float, y2: Float,
-        linePaint: Paint, arrowPaint: Paint, scale: Float
-    ) {
-        val dx = x2 - x1
-        val path = Path()
-        path.moveTo(x1, y1)
-
-        val ctrlX1 = x1 + dx * 0.5f
-        val ctrlY1 = y1
-        val ctrlX2 = x1 + dx * 0.5f
-        val ctrlY2 = y2
-        path.cubicTo(ctrlX1, ctrlY1, ctrlX2, ctrlY2, x2, y2)
-        canvas.drawPath(path, linePaint)
-
-        val angle = atan2((y2 - ctrlY2).toDouble(), (x2 - ctrlX2).toDouble())
-        val arrowLength = 24f * scale
-        val arrowAngle = Math.toRadians(26.0)
-
-        val arrowPath = Path()
-        arrowPath.moveTo(x2, y2)
-        arrowPath.lineTo(
-            (x2 - arrowLength * cos(angle - arrowAngle)).toFloat(),
-            (y2 - arrowLength * sin(angle - arrowAngle)).toFloat()
-        )
-        arrowPath.lineTo(
-            (x2 - arrowLength * cos(angle + arrowAngle)).toFloat(),
-            (y2 - arrowLength * sin(angle + arrowAngle)).toFloat()
-        )
-        arrowPath.close()
-        canvas.drawPath(arrowPath, arrowPaint)
     }
 
     private fun timestampedName(prefix: String, ext: String): String {
@@ -308,9 +284,13 @@ object ExportManager {
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = mimeType
             putExtra(Intent.EXTRA_STREAM, uri)
+            clipData = android.content.ClipData.newRawUri("NoteApp Export", uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        context.startActivity(Intent.createChooser(intent, "Share export"))
+        val chooser = Intent.createChooser(intent, "Share export").apply {
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(chooser)
     }
 
     fun downloadPdfToDevice(context: Context, bitmap: Bitmap): File? {
@@ -418,6 +398,7 @@ object ExportManager {
             zipOut.closeEntry()
 
             zipOut.finish()
+            zipOut.flush()
             true
         } catch (e: Exception) {
             e.printStackTrace()
@@ -444,10 +425,17 @@ object ExportManager {
                 while (entry != null) {
                     val name = entry.name
                     if (name == "board.json" || name.endsWith("/board.json")) {
-                        boardJson = zipIn.bufferedReader(Charsets.UTF_8).readText()
+                        val out = java.io.ByteArrayOutputStream()
+                        val buf = ByteArray(4096)
+                        var len: Int
+                        while (zipIn.read(buf).also { len = it } > 0) {
+                            out.write(buf, 0, len)
+                        }
+                        boardJson = out.toString("UTF-8")
                     } else if (name.startsWith("images/") && !entry.isDirectory) {
-                        val fileName = name.substringAfterLast("/")
-                        val destFile = File(imagesDir, "imported_${System.currentTimeMillis()}_$fileName")
+                        val ext = name.substringAfterLast(".", "png")
+                        val uniqueName = "imported_${System.currentTimeMillis()}_${java.util.UUID.randomUUID().toString().take(8)}.$ext"
+                        val destFile = File(imagesDir, uniqueName)
                         FileOutputStream(destFile).use { out ->
                             zipIn.copyTo(out)
                         }

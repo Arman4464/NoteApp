@@ -1,71 +1,81 @@
-# NoteApp Final Delivery & Verification Walkthrough
+# NoteApp Production Delivery & Verification Walkthrough
 
-The Final Audit, package upgrade, bug hunt, and compilation have completed successfully. NoteApp is fully assembled, tested, and verified as a flagship personal notetaking, visual thinking, and infinite canvas application combining the strengths of Milanote, Canvio, and tldraw.
-
----
-
-## 1. Package Modernization (Upgraded to Latest Versions)
-
-All project dependencies and Gradle plugins have been upgraded to their latest stable releases:
-
-- **Android Gradle Plugin (AGP):** `8.2.2` (upgraded from `8.1.4`)
-- **Kotlin Android Plugin:** `1.9.22` (upgraded from `1.9.10`)
-- **AndroidX Core KTX:** `1.13.1` (upgraded from `1.12.0`)
-- **AndroidX AppCompat:** `1.7.0` (upgraded from `1.6.1`)
-- **Google Material Components:** `1.12.0` (upgraded from `1.11.0`)
-- **AndroidX ConstraintLayout:** `2.1.4` (LTS)
-- **AndroidX CardView:** `1.0.0` (Explicitly added)
-- **AndroidX RecyclerView:** `1.3.2` (Explicitly added)
+NoteApp has been upgraded to a production-ready release with high-precision export, multi-target smart erasing, individual board sub-theming, hardware-safe foreground inking over cards, symmetrical arrow styling, and a gamified onboarding tutorial with race-condition prevention.
 
 ---
 
-## 2. Bug Hunt & Compiler Warning Resolutions
-
-1. **Deprecated `onBackPressed()` Replaced:**
-   - Migrated to modern AndroidX `OnBackPressedCallback` attached via `onBackPressedDispatcher.addCallback(this)`. Handles nested sub-board navigation, returning to the Homepage, and app exit in compliance with Android 13/14+ Predictive Back standards.
-2. **Unused Variable Cleared:**
-   - Removed unused `val root` variable from `initViews()`.
-3. **Syntax Unit & Callback Corrected:**
-   - Fixed `textSize = 14sp` by providing the expected standard float `textSize = 14f`.
-   - Updated `undoRedoManager.onHistoryChanged` to `undoRedoManager.onStateChanged`.
-4. **Adaptive Icon Multi-SDK Hierarchy:**
-   - Split icons into `res/drawable-v26/ic_launcher.xml` (API 26+ Adaptive Icon) and `res/drawable/ic_launcher.xml` (API 24 `<layer-list>` fallback), ensuring seamless resource linking without AAPT errors.
-5. **Compilation Verification:**
-   - `.\gradlew.bat assembleDebug` builds with **0 errors and 0 warnings**.
-
----
-
-## 3. Implemented Features & Polish
-
-### A. Living Minimap Cards on Homepage
-- Each board card in the homepage grid displays an interactive miniature rendering of that board's actual cards, connectors, and ink strokes via `BoardThumbnailMinimapView`.
-- Directly underneath the minimap preview, the card presents:
-  1. **Board Title:** Bold name with single-line truncation.
-  2. **Date Created:** Formatted timestamp (e.g. `Created: Sep 15, 2026`).
-  3. **Date Last Updated:** Formatted timestamp (e.g. `Updated: Just now`).
-  4. **Element Breakdown Details:** Dynamic string breakdown (e.g. `4 notes • 1 to-do • 2 images • 12 ink`).
-  5. **Total Elements Badge:** Top-right count chip (e.g. `19 items`).
-  6. **3-Dot Overflow Menu:** Rename, Duplicate, Export Project (`.noteapp`), and Delete.
-
-### B. Theme-Aware Vector & High-Res Exporting
-- `ExportManager.renderBitmap` accepts active `themeColors`.
-- Background is drawn with `canvas.drawColor(themeColors?.canvasBg ?: Color.WHITE)`, ensuring exported PNGs and PDFs match the canvas background (Cyberpunk OLED black, Warm Parchment amber, Milanote Slate dark, or Modern Clean light).
-
-### C. Homepage Isolation for Settings
-- The Settings button is strictly housed on the Homepage top bar (next to Import Project).
-- Canvas mode remains clean and focused on content creation, with canvas tool options housed in the floating bottom-left tool settings button.
-
-### D. Transparent Action Button Backgrounds
-- All toolbar and dock buttons feature borderless transparent backgrounds (`?attr/selectableItemBackgroundBorderless`).
-
-### E. Professional Onboarding & Interactive Playground
-- 5-step tutorial dialog with a **"Skip Tutorial"** button, custom icons, and step-by-step guidance.
-- Default **"Tutorial & Playground"** seed board containing interactive samples of all app capabilities (notes, checklists, handwriting sticky notes, connected diagrams, live sub-boards, and inking).
+## 1. Canvas Arrows & High-Fidelity Exporting
+- **Bounding Box Calculation**: `ExportManager.calculateContentBounds()` now fully encompasses free-floating arrows and card connector bezier arcs, preventing cropped or missing arrows during export.
+- **Strict 5-Layer Canvas Drawing Order**:
+  1. Background Connectors (behind cards)
+  2. Background Freehand Ink
+  3. Notes, Sticky Notes, Checklists, Tables, Images, and Sub-Board Cards
+  4. Foreground Connectors (over cards)
+  5. Foreground Freehand Ink (over cards and photos)
+- **High-Resolution Vector & Bitmap Rendering**:
+  - `PaintFlagsDrawFilter(0, Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)` enabled for crisp bicubic bitmap interpolation.
+  - Text, shapes, connectors, and ink rendered at 3x oversampling scale for sharp readability of small handwriting and diagrams.
+  - Complete theme canvas background drawn cleanly in exported PNG and PDF.
+- **Reliable Sharing & SAF Destination Selection**:
+  - `ExportManager.shareUri` attaches `intent.clipData = ClipData.newRawUri(...)` alongside `FLAG_GRANT_READ_URI_PERMISSION`, resolving Android URI permission errors when sharing to third-party apps (WhatsApp, Drive, Gmail).
+  - Storage Access Framework (SAF) enables custom directory and filename selection for vector PDF, high-res PNG, and `.noteapp` project archives.
+  - Added `ACTION_SEND` and zip MIME type intent filters (`application/zip`, `application/x-zip-compressed`, `application/x-noteapp`, `application/octet-stream`) in `AndroidManifest.xml` and handled `Intent.EXTRA_STREAM` in `MainActivity` for seamless inbound project imports.
 
 ---
 
-## 4. Final Deliverables
+## 2. Multi-Target Smart Eraser & Arrow Erasing
+- **Three Dedicated Eraser Targets**:
+  - **Pen Ink**: Cleans up freehand pen strokes without affecting arrows or cards.
+  - **Arrows**: Erases free-floating arrows and card-to-card connectors via quadratic bezier curve and line-segment distance calculations (`ConnectorOverlayView.distToConnector`).
+  - **All**: Erases both ink strokes and arrows concurrently with tactile haptic feedback.
+- **Eraser Controls in Tool Settings**:
+  - Pill selector for `Pen Ink`, `Arrows`, and `All`.
+  - Three radius sizes: Small (16px), Medium (28px), and Large (56px).
+  - Dedicated "🗑 Clear All Arrows" button with confirmation dialog and full Undo/Redo recording.
 
-- **Root APK:** [NoteApp.apk](file:///c:/Users/rango/OneDrive/Documents/NoteApp/NoteApp.apk) (`6.77 MB`)
-- **Build Artifact:** [app-debug.apk](file:///c:/Users/rango/OneDrive/Documents/NoteApp/app/build/outputs/apk/debug/app-debug.apk) (`6.77 MB`)
-- **Compilation Log:** `BUILD SUCCESSFUL in 1m 29s` (35 tasks executed/up-to-date, 0 errors, 0 warnings).
+---
+
+## 3. Sub-Themed Board Cards on Homepage
+- **Individual Subtheme Rendering**:
+  - `BoardGridAdapter` resolves each board's own subtheme via `BoardSubTheme.resolveThemeColors(board.subThemeId, board.subThemeIsDark, fallback = globalTheme)`.
+  - Each board card's background, border, title, item counter badge, breakdown details, and living minimap thumbnail display that board's palette.
+  - The card's 3-dot overflow menu dialog uses the board's palette for complete visual harmony.
+
+---
+
+## 4. Hardware-Safe Foreground Inking Over Cards & Images
+- **Root Cause of Vanishing Ink Resolved**:
+  - Setting view elevation on hardware-accelerated infinite views exceeding GPU maximum texture sizes caused RenderNode texture allocation failures, rendering ink invisible.
+  - All overlay views (`bgDrawingOverlay`, `fgDrawingOverlay`, `connectorOverlay`, `fgConnectorOverlay`, `selectionOverlay`, `marqueeOverlay`) and `NoteBoxView` maintain `elevation = 0f`.
+- **Deterministic Child Ordering**:
+  - Layer ordering inside `contentLayer` is managed through `maintainLayerOrder()` (`fgConnectorOverlay.bringToFront()`, `fgDrawingOverlay.bringToFront()`, `selectionOverlay.bringToFront()`, `marqueeOverlay.bringToFront()`).
+  - Foreground pen ink draws cleanly and legibly directly across cards, notes, tables, sticky notes, and image cards with zero rendering artifacts.
+
+---
+
+## 5. Symmetrical Arrow Head & Tail Styles
+- **Deterministic Style Resolution**:
+  - Replaced fallback logic with `resolveHeadStyle` and `resolveTailStyle` in `ConnectorOverlayView`.
+- **6 Symmetrical Head and Tail Endpoint Shapes**:
+  - Tail: None (`—`), Arrow (`◀`), Open Barb (`<`), Dot (`●`), Diamond (`◆`), Bar (`|`)
+  - Head: Arrow (`▶`), Open Barb (`>`), Dot (`●`), Diamond (`◆`), Bar (`|`), None (`—`)
+- **Settings Panel Synchronization**:
+  - Added missing `btnTailOpen` (`<`) and `btnHeadBar` (`|`) buttons to `activity_main.xml` and synchronized them with `MainActivity`.
+
+---
+
+## 6. Gamified Interactive Tutorial & Glitch Fix
+- **Glitch Diagnosis**:
+  - During canvas pan/zoom in Quest 0, rapid `ACTION_MOVE` touch events invoked `onCanvasPanZoomListener` dozens of times per second.
+  - Because `currentQuestIndex` only advanced inside a delayed animation callback without a completion lock, multiple timers were queued concurrently, causing the tutorial to cascade and autocomplete through all 13 quests within seconds.
+- **Resolution**:
+  - Introduced `isCompletingQuest` state lock in `GameTutorialManager`. Once an objective is met, subsequent duplicate events are ignored until the new quest is active.
+  - Added pending callback cancellation in `GameTutorialHudView` to prevent timer stacking.
+  - Verified progression across all 13 quests: Canvas Navigation $\to$ Create Note $\to$ Select & Move $\to$ Formatting $\to$ Elements $\to$ Draw Ink $\to$ Erase Ink $\to$ Connect Cards $\to$ Marquee Lasso $\to$ Radar Minimap $\to$ Ceiling Search $\to$ Sub-Themes $\to$ Pro Export.
+
+---
+
+## 7. Production Release Deliverable
+- Built with `.\gradlew.bat assembleRelease` (non-debuggable release build).
+- Output release APK generated and copied to project root as `NoteApp.apk`.
+

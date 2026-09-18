@@ -260,6 +260,19 @@ class BoardManager(private val context: Context) {
         return true
     }
 
+    fun getOrCreatePlaygroundBoard(): BoardData {
+        val existing = boardList.find { it.id == "playground" }
+        return if (existing != null) {
+            loadBoard(existing.id)
+        } else {
+            val pb = createDefaultPlaygroundBoard()
+            boardList.add(0, pb.meta)
+            saveBoard(pb)
+            saveManifest()
+            pb
+        }
+    }
+
     fun createDefaultPlaygroundBoard(): BoardData {
         val meta = BoardMeta(id = "playground", name = "Tutorial & Playground")
         val cx = 12000f
