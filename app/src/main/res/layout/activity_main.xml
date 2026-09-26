@@ -623,6 +623,19 @@
                 android:textColor="#F87171"
                 android:textSize="13sp" />
 
+            <!-- Lock / Unlock Card Position -->
+            <ImageButton
+                android:id="@+id/btnSelectionLock"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:layout_marginStart="6dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Lock or unlock position"
+                android:padding="4dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_lock_open"
+                app:tint="#FCD34D" />
+
             <TextView
                 android:id="@+id/btnSelectionClose"
                 android:layout_width="wrap_content"

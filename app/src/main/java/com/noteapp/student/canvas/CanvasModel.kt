@@ -70,12 +70,14 @@ data class NoteBoxData(
     var imagePath: String? = null,
     var checklist: MutableList<ChecklistItem> = mutableListOf(),
     var tableData: TableData? = null,
-    var zIndex: Int = 0
+    var zIndex: Int = 0,
+    var isLocked: Boolean = false
 ) {
     fun copyDeep(): NoteBoxData {
         return copy(
             checklist = checklist.map { it.copy() }.toMutableList(),
-            tableData = tableData?.copyDeep()
+            tableData = tableData?.copyDeep(),
+            isLocked = isLocked
         )
     }
 }

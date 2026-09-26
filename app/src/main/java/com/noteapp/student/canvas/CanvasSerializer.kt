@@ -55,6 +55,7 @@ object CanvasSerializer {
             o.put("italic", b.italic)
             o.put("imagePath", b.imagePath)
             o.put("zIndex", b.zIndex)
+            o.put("isLocked", b.isLocked)
 
             val itemsArray = JSONArray()
             for (item in b.checklist) {
@@ -281,7 +282,8 @@ object CanvasSerializer {
                     imagePath = imagePath,
                     checklist = checklist,
                     tableData = tableData,
-                    zIndex = o.optInt("zIndex", 0)
+                    zIndex = o.optInt("zIndex", 0),
+                    isLocked = o.optBoolean("isLocked", false)
                 )
             )
         }

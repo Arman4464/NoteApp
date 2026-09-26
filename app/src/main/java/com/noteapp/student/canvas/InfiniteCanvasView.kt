@@ -121,6 +121,7 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
     private var lastPanX = 0f
     private var lastPanY = 0f
     private var isPanning = false
+    private var activePointerCount = 0
 
     // Marquee Box Selection
     private var isMarqueeDragging = false
@@ -170,7 +171,12 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
     private val scaleDetector = ScaleGestureDetector(
         context,
         object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
+                return activePointerCount >= 2
+            }
+
             override fun onScale(detector: ScaleGestureDetector): Boolean {
+                if (activePointerCount < 2) return false
                 val oldScale = scale
                 var newScale = scale * detector.scaleFactor
                 newScale = max(MIN_SCALE, min(MAX_SCALE, newScale))
@@ -189,7 +195,9 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
                 return true
             }
         }
-    )
+    ).apply {
+        isQuickScaleEnabled = false
+    }
 
     init {
         setWillNotDraw(false)
@@ -457,8 +465,11 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
     private var hasPannedSignificant = false
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        scaleDetector.onTouchEvent(event)
-        if (scaleDetector.isInProgress) return true
+        activePointerCount = event.pointerCount
+        if (event.pointerCount >= 2) {
+            scaleDetector.onTouchEvent(event)
+            if (scaleDetector.isInProgress) return true
+        }
 
         val contentX = (event.x - contentLayer.translationX) / scale
         val contentY = (event.y - contentLayer.translationY) / scale
@@ -597,7 +608,7 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
         // Natural Navigation & 1-finger canvas panning:
         // 1-finger drag on background pans canvas. Tap on background deselects all cards.
         when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+            MotionEvent.ACTION_DOWN -> {
                 isPanning = true
                 lastPanX = event.x
                 lastPanY = event.y
@@ -605,8 +616,13 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
                 initialTouchY = event.y
                 hasPannedSignificant = false
             }
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                // Secondary finger touched down; reset pan anchor
+                lastPanX = event.x
+                lastPanY = event.y
+            }
             MotionEvent.ACTION_MOVE -> {
-                if (isPanning) {
+                if (event.pointerCount == 1 && isPanning) {
                     val dx = event.x - lastPanX
                     val dy = event.y - lastPanY
                     if (Math.hypot((event.x - initialTouchX).toDouble(), (event.y - initialTouchY).toDouble()) > 10.0) {
@@ -621,15 +637,23 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
                     if (hasPannedSignificant) {
                         onCanvasPanZoomListener?.invoke()
                     }
+                } else if (event.pointerCount >= 2) {
+                    lastPanX = event.x
+                    lastPanY = event.y
                 }
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_UP -> {
-                if (isPanning && !hasPannedSignificant && event.actionMasked == MotionEvent.ACTION_UP) {
+            MotionEvent.ACTION_UP -> {
+                if (isPanning && !hasPannedSignificant) {
                     // Tap on empty background -> deselect all cards
                     clearSelection()
                     onBackgroundTapped?.invoke()
                 }
                 isPanning = false
+            }
+            MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_UP -> {
+                if (event.pointerCount <= 1) {
+                    isPanning = false
+                }
             }
         }
         return true
@@ -755,6 +779,8 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
             onTextFocusChanged = { onTextFocusEvent?.invoke() },
             getScale = { scale }
         )
+        box.onBringToFrontRequested = { bringSelectedToFront() }
+        box.onSendToBackRequested = { sendSelectedToBack() }
         box.onColorChanged = { b, oldColor, newColor ->
             undoRedoManager?.record(object : CanvasCommand {
                 override fun execute() {
@@ -779,19 +805,30 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
             handleConnectSelection(box)
             return
         }
-        val isAlreadyTop = (boxes.lastOrNull() === box)
-        if (!isAlreadyTop) {
-            boxes.remove(box)
-            boxes.add(box)
-            box.bringToFront()
-            maintainLayerOrder()
-        }
 
         if (selectedBoxes.size == 1 && selectedBoxes.contains(box)) {
-            // Already exclusively selected; avoid redundant deselect/select cycle
+            // Already selected; check if there are other cards overlapping at this point to cycle selection
+            val overlapping = boxes.filter { other ->
+                other !== box &&
+                box.data.x < other.data.x + other.data.width &&
+                box.data.x + box.data.width > other.data.x &&
+                box.data.y < other.data.y + other.data.height &&
+                box.data.y + box.data.height > other.data.y
+            }
+            if (overlapping.isNotEmpty()) {
+                val allOverlapping = listOf(box) + overlapping
+                val currentIndex = allOverlapping.indexOf(box)
+                val nextIndex = (currentIndex + 1) % allOverlapping.size
+                selectSingleBox(allOverlapping[nextIndex])
+                return
+            }
             return
         }
 
+        selectSingleBox(box)
+    }
+
+    fun selectSingleBox(box: NoteBoxView) {
         for (b in selectedBoxes) {
             b.setSelectedState(false)
         }
@@ -800,8 +837,55 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
         box.setSelectedState(true)
 
         selectionOverlay.targetBox = box
+        selectionOverlay.bringToFront()
+        marqueeOverlay.bringToFront()
         selectionOverlay.invalidate()
         onSelectionChanged?.invoke(1)
+    }
+
+    fun toggleLockSelectedBoxes(): Boolean {
+        if (selectedBoxes.isEmpty()) return false
+        val anyUnlocked = selectedBoxes.any { !it.data.isLocked }
+        val newLockState = anyUnlocked
+        for (b in selectedBoxes) {
+            b.data.isLocked = newLockState
+        }
+        selectionOverlay.invalidate()
+        onContentChanged?.invoke()
+        return newLockState
+    }
+
+    fun areSelectedBoxesLocked(): Boolean {
+        if (selectedBoxes.isEmpty()) return false
+        return selectedBoxes.all { it.data.isLocked }
+    }
+
+    fun bringSelectedToFront() {
+        if (selectedBoxes.isEmpty()) return
+        for (box in selectedBoxes) {
+            boxes.remove(box)
+            boxes.add(box)
+            box.bringToFront()
+        }
+        maintainLayerOrder()
+        selectionOverlay.invalidate()
+        onContentChanged?.invoke()
+    }
+
+    fun sendSelectedToBack() {
+        if (selectedBoxes.isEmpty()) return
+        for (box in selectedBoxes.reversed()) {
+            boxes.remove(box)
+            boxes.add(0, box)
+        }
+        connectorOverlay.bringToFront()
+        bgDrawingOverlay.bringToFront()
+        for (box in boxes) {
+            box.bringToFront()
+        }
+        maintainLayerOrder()
+        selectionOverlay.invalidate()
+        onContentChanged?.invoke()
     }
 
     // ---------- Group Moving ----------
@@ -815,12 +899,16 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
     private fun handleBoxMoved(dx: Float, dy: Float) {
         if (moveStartPositions.isEmpty()) {
             for (b in selectedBoxes) {
-                moveStartPositions[b.data.id] = Pair(b.data.x, b.data.y)
+                if (!b.data.isLocked) {
+                    moveStartPositions[b.data.id] = Pair(b.data.x, b.data.y)
+                }
             }
         }
-        // Move all selected boxes simultaneously
+        // Move all selected unlocked boxes simultaneously
         for (selected in selectedBoxes) {
-            selected.applyMoveDelta(dx, dy)
+            if (!selected.data.isLocked) {
+                selected.applyMoveDelta(dx, dy)
+            }
         }
         selectionOverlay.invalidate()
         if (hasConnectorsAttachedTo(selectedBoxes)) {

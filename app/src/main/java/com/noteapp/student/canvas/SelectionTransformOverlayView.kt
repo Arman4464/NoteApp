@@ -89,12 +89,15 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
     private val headingRect = RectF()
     private val handleCenters = Array(8) { FloatArray(2) }
 
+    private var themeAccentColor: Int = Color.parseColor("#2563EB")
+
     fun updateTheme(textColor: Int) {
         headingPaint.color = textColor
         invalidate()
     }
 
     fun applyTheme(colors: com.noteapp.student.settings.ThemeColors) {
+        themeAccentColor = colors.accent
         borderPaint.color = colors.accent
         handleStrokePaint.color = colors.accent
         headingPaint.color = colors.topBarText
@@ -147,7 +150,7 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
     }
 
     private fun getHeadingTitle(box: NoteBoxView): String {
-        return when (box.data.kind) {
+        val baseTitle = when (box.data.kind) {
             BoxKind.TEXT -> "Note"
             BoxKind.IMAGE -> "Image"
             BoxKind.CHECKLIST -> "Checklist"
@@ -164,6 +167,7 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
             BoxKind.BOARD -> "\uD83D\uDCC1 ${box.data.targetBoardName ?: "Board"}"
             BoxKind.LINK -> "\uD83D\uDD17 Link"
         }
+        return if (box.data.isLocked) "🔒 Locked — $baseTitle" else baseTitle
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -178,19 +182,22 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
         val r = box.data.x + box.data.width
         val b = box.data.y + box.data.height
 
-        // 1. MS Paint Blue Border
+        // 1. Selection Border (Amber if locked, accent color if unlocked)
+        borderPaint.color = if (box.data.isLocked) Color.parseColor("#F59E0B") else themeAccentColor
         canvas.drawRect(l, t, r, b, borderPaint)
 
-        // 2. 8 MS Paint Handles (14px square, white fill + blue stroke)
-        val handleHalfSize = 7f
-        for (i in 0..7) {
-            val hx = handleCenters[i][0]
-            val hy = handleCenters[i][1]
-            canvas.drawRect(hx - handleHalfSize, hy - handleHalfSize, hx + handleHalfSize, hy + handleHalfSize, handleFillPaint)
-            canvas.drawRect(hx - handleHalfSize, hy - handleHalfSize, hx + handleHalfSize, hy + handleHalfSize, handleStrokePaint)
+        // 2. 8 MS Paint Handles (Only drawn if NOT locked!)
+        if (!box.data.isLocked) {
+            val handleHalfSize = 7f
+            for (i in 0..7) {
+                val hx = handleCenters[i][0]
+                val hy = handleCenters[i][1]
+                canvas.drawRect(hx - handleHalfSize, hy - handleHalfSize, hx + handleHalfSize, hy + handleHalfSize, handleFillPaint)
+                canvas.drawRect(hx - handleHalfSize, hy - handleHalfSize, hx + handleHalfSize, hy + handleHalfSize, handleStrokePaint)
+            }
         }
 
-        // 3. Heading Text floating ABOVE (outside) the box (NO solid background color, pure clean text)
+        // 3. Heading Text floating ABOVE (outside) the box
         val headingText = getHeadingTitle(box)
         canvas.drawText(headingText, headingRect.left + 4f, headingRect.bottom - 8f, headingPaint)
     }
@@ -198,6 +205,7 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
     private fun hitTest(x: Float, y: Float): Int {
         val box = targetBox ?: return HANDLE_NONE
         if (!box.isBoxSelected()) return HANDLE_NONE
+        if (box.data.isLocked) return HANDLE_NONE
         updateGeometry(box)
 
         // 1. 8 handles hit test (touch target radius 28px)
@@ -227,31 +235,12 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val box = targetBox ?: return false
         if (!box.isBoxSelected()) return false
+        if (box.data.isLocked) return false
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 val handle = hitTest(event.x, event.y)
                 if (handle == HANDLE_NONE) {
-                    val l = box.data.x
-                    val t = box.data.y
-                    val r = box.data.x + box.data.width
-                    val b = box.data.y + box.data.height
-
-                    // If touch is inside the box:
-                    if (event.x in l..r && event.y in t..b) {
-                        // For non-text content (Images, Boards, Links), direct touch drags to move the box!
-                        if (box.data.kind == BoxKind.IMAGE || box.data.kind == BoxKind.BOARD || box.data.kind == BoxKind.LINK) {
-                            activeHandle = HANDLE_HEADING
-                            isInteracting = true
-                            lastTouchX = event.x
-                            lastTouchY = event.y
-                            initialX = box.data.x
-                            initialY = box.data.y
-                            parent?.requestDisallowInterceptTouchEvent(true)
-                            return true
-                        }
-                        return false
-                    }
                     return false
                 }
 

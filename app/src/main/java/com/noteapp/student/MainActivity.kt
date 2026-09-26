@@ -141,6 +141,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnSelectionColor: TextView
     private lateinit var btnSelectionDuplicate: TextView
     private lateinit var btnSelectionDelete: TextView
+    private lateinit var btnSelectionLock: ImageButton
     private lateinit var btnSelectionClose: TextView
 
     // Interactive Game Tutorial
@@ -479,6 +480,7 @@ class MainActivity : AppCompatActivity() {
         btnSelectionColor = findViewById(R.id.btnSelectionColor)
         btnSelectionDuplicate = findViewById(R.id.btnSelectionDuplicate)
         btnSelectionDelete = findViewById(R.id.btnSelectionDelete)
+        btnSelectionLock = findViewById(R.id.btnSelectionLock)
         btnSelectionClose = findViewById(R.id.btnSelectionClose)
 
         // Game Tutorial HUD & Manager
@@ -774,6 +776,8 @@ class MainActivity : AppCompatActivity() {
             if (count > 0 && canvas.activeTool == CanvasTool.SELECT) {
                 selectionBar.visibility = View.VISIBLE
                 tvSelectionCount.text = if (count == 1) "1 card selected" else "$count cards selected"
+                val allLocked = canvas.areSelectedBoxesLocked()
+                btnSelectionLock.setImageResource(if (allLocked) R.drawable.ic_lock else R.drawable.ic_lock_open)
             } else {
                 selectionBar.visibility = View.GONE
             }
@@ -1122,6 +1126,15 @@ class MainActivity : AppCompatActivity() {
             canvas.deleteSelectedBoxes()
         }
 
+        btnSelectionLock.setOnClickListener {
+            val isLocked = canvas.toggleLockSelectedBoxes()
+            btnSelectionLock.setImageResource(if (isLocked) R.drawable.ic_lock else R.drawable.ic_lock_open)
+            showThemedToast(
+                if (isLocked) "Position Locked (Fixed)" else "Position Unlocked",
+                if (isLocked) R.drawable.ic_lock else R.drawable.ic_lock_open
+            )
+        }
+
         btnSelectionClose.setOnClickListener {
             canvas.clearSelection()
         }
@@ -1242,6 +1255,7 @@ class MainActivity : AppCompatActivity() {
         btnSelectionColor.setTextColor(colors.accent)
         btnSelectionDuplicate.setTextColor(colors.topBarText)
         btnSelectionDelete.setTextColor(Color.parseColor("#EF4444"))
+        btnSelectionLock.imageTintList = ColorStateList.valueOf(colors.accent)
         btnSelectionClose.setTextColor(mutedIconColor)
         selectionBarDivider.setBackgroundColor(colors.cardBorder)
         minimapView.applyTheme(colors)

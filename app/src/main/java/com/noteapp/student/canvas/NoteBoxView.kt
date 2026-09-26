@@ -108,14 +108,10 @@ class NoteBoxView(
             }
         }
 
-    private var lastTappedTime = 0L
-    private fun notifyBoxTapped() {
-        val now = android.os.SystemClock.uptimeMillis()
-        if (now - lastTappedTime > 200) {
-            lastTappedTime = now
-            onBoxTapped(this)
-        }
-    }
+    var onBringToFrontRequested: ((NoteBoxView) -> Unit)? = null
+    var onSendToBackRequested: ((NoteBoxView) -> Unit)? = null
+
+    private var lastTapTime = 0L
 
     init {
         setWillNotDraw(false)
@@ -141,12 +137,17 @@ class NoteBoxView(
         y = data.y
 
         setOnClickListener {
-            notifyBoxTapped()
+            onBoxTapped(this)
         }
     }
 
+    fun containsPoint(wx: Float, wy: Float): Boolean {
+        return wx >= data.x && wx <= data.x + data.width &&
+               wy >= data.y && wy <= data.y + data.height
+    }
+
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
-        if (!isTextEditingMode) {
+        if (!isSelectedState) {
             when (ev.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     touchStartX = ev.rawX
@@ -158,16 +159,50 @@ class NoteBoxView(
                     val dy = Math.abs(ev.rawY - touchStartY)
                     val density = resources.displayMetrics.density
                     if (hypot(dx.toDouble(), dy.toDouble()) > 8 * density) {
-                        if (!isSelectedState) {
-                            notifyBoxTapped()
+                        onBoxTapped(this)
+                        if (!data.isLocked) {
+                            isDraggingSelf = true
+                            parent?.requestDisallowInterceptTouchEvent(true)
                         }
-                        isDraggingSelf = true
-                        parent?.requestDisallowInterceptTouchEvent(true)
                         return true
                     }
                 }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    return true
+                }
+            }
+            return true
+        }
+
+        // When selected, for text cards only intercept if not currently editing text
+        if (data.kind == BoxKind.TEXT || (data.kind == BoxKind.SHAPE && data.shapeType == ShapeType.STICKY_NOTE)) {
+            if (!isTextEditingMode) {
+                when (ev.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        touchStartX = ev.rawX
+                        touchStartY = ev.rawY
+                        isDraggingSelf = false
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val dx = Math.abs(ev.rawX - touchStartX)
+                        val dy = Math.abs(ev.rawY - touchStartY)
+                        val density = resources.displayMetrics.density
+                        if (hypot(dx.toDouble(), dy.toDouble()) > 8 * density) {
+                            if (!data.isLocked) {
+                                isDraggingSelf = true
+                                parent?.requestDisallowInterceptTouchEvent(true)
+                            }
+                            return true
+                        }
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        return true
+                    }
+                }
+                return true
             }
         }
+
         return super.onInterceptTouchEvent(ev)
     }
 
@@ -186,12 +221,14 @@ class NoteBoxView(
                     val density = resources.displayMetrics.density
                     if (!isDraggingSelf && hypot(dx.toDouble(), dy.toDouble()) > 8 * density) {
                         if (!isSelectedState) {
-                            notifyBoxTapped()
+                            onBoxTapped(this)
                         }
-                        isDraggingSelf = true
-                        parent?.requestDisallowInterceptTouchEvent(true)
+                        if (!data.isLocked) {
+                            isDraggingSelf = true
+                            parent?.requestDisallowInterceptTouchEvent(true)
+                        }
                     }
-                    if (isDraggingSelf) {
+                    if (isDraggingSelf && !data.isLocked) {
                         val moveDx = (event.rawX - touchStartX) / getScale()
                         val moveDy = (event.rawY - touchStartY) / getScale()
                         touchStartX = event.rawX
@@ -207,8 +244,24 @@ class NoteBoxView(
                         parent?.requestDisallowInterceptTouchEvent(false)
                         return true
                     } else {
-                        if (!isSelectedState) {
-                            notifyBoxTapped()
+                        val now = android.os.SystemClock.uptimeMillis()
+                        val isDoubleTap = (now - lastTapTime < 350)
+                        lastTapTime = now
+
+                        if (isDoubleTap) {
+                            when (data.kind) {
+                                BoxKind.TEXT -> enterTextEditing()
+                                BoxKind.SHAPE -> {
+                                    if (data.shapeType == ShapeType.STICKY_NOTE) enterTextEditing()
+                                    else showBoxMenu()
+                                }
+                                BoxKind.BOARD -> data.targetBoardId?.let { onOpenSubBoard(it) }
+                                BoxKind.TABLE -> onBoxTapped(this)
+                                BoxKind.IMAGE -> showBoxMenu()
+                                else -> showBoxMenu()
+                            }
+                        } else {
+                            onBoxTapped(this)
                         }
                         return true
                     }
@@ -218,8 +271,8 @@ class NoteBoxView(
                         isDraggingSelf = false
                         onMoveFinished()
                         parent?.requestDisallowInterceptTouchEvent(false)
-                        return true
                     }
+                    return true
                 }
             }
         }
@@ -507,44 +560,44 @@ class NoteBoxView(
             onTextFocusChanged()
         }
 
-        val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
-            override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-                if (!isSelectedState) {
-                    notifyBoxTapped()
-                }
-                return true
-            }
-
-            override fun onDoubleTap(e: MotionEvent): Boolean {
-                if (!isSelectedState) {
-                    notifyBoxTapped()
-                }
-                enterTextEditing()
-                return true
-            }
-        })
-
-        et.setOnTouchListener { _, event ->
-            gestureDetector.onTouchEvent(event)
-            if (!isTextEditingMode) {
-                this@NoteBoxView.onTouchEvent(event)
-                true
-            } else {
-                false
-            }
-        }
         return et
     }
 
-    private fun buildImageContent(): ImageView {
-        return ImageView(context).apply {
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            adjustViewBounds = true
-            val path = data.imagePath
-            if (path != null) {
-                val bmp = BitmapFactory.decodeFile(path)
-                if (bmp != null) setImageBitmap(bmp)
+    private fun buildImageContent(): View {
+        val path = data.imagePath
+        val bmp = if (path != null) BitmapFactory.decodeFile(path) else null
+        if (bmp != null) {
+            return ImageView(context).apply {
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                adjustViewBounds = true
+                setImageBitmap(bmp)
             }
+        }
+        val density = resources.displayMetrics.density
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding((16 * density).toInt(), (16 * density).toInt(), (16 * density).toInt(), (16 * density).toInt())
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 16f * density
+                setColor(Color.argb(30, 148, 163, 184))
+                setStroke((1.5f * density).toInt(), Color.parseColor("#94A3B8"), 12f, 8f)
+            }
+            val iv = ImageView(context).apply {
+                setImageResource(R.drawable.ic_image)
+                imageTintList = ColorStateList.valueOf(Color.parseColor("#94A3B8"))
+                layoutParams = LinearLayout.LayoutParams((36 * density).toInt(), (36 * density).toInt())
+            }
+            val tv = TextView(context).apply {
+                text = "Missing Image\n(Tap to delete)"
+                setTextColor(Color.parseColor("#94A3B8"))
+                textSize = 11f
+                gravity = Gravity.CENTER
+                setPadding(0, (6 * density).toInt(), 0, 0)
+            }
+            addView(iv)
+            addView(tv)
         }
     }
 
@@ -558,12 +611,6 @@ class NoteBoxView(
             setPadding(16, 16, 16, 32)
         }
         scroll.addView(checklistContainer)
-        scroll.setOnTouchListener { _, event ->
-            if (!isSelectedState && event.actionMasked == MotionEvent.ACTION_UP) {
-                notifyBoxTapped()
-            }
-            false
-        }
         rebuildChecklist()
         return scroll
     }
@@ -586,19 +633,6 @@ class NoteBoxView(
         }
         hScroll.addView(tableContainer, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         vScroll.addView(hScroll, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
-
-        vScroll.setOnTouchListener { _, event ->
-            if (!isSelectedState && event.actionMasked == MotionEvent.ACTION_UP) {
-                notifyBoxTapped()
-            }
-            false
-        }
-        hScroll.setOnTouchListener { _, event ->
-            if (!isSelectedState && event.actionMasked == MotionEvent.ACTION_UP) {
-                notifyBoxTapped()
-            }
-            false
-        }
 
         rebuildTable()
         return vScroll
@@ -720,12 +754,6 @@ class NoteBoxView(
                     }
                 })
                 th.setOnFocusChangeListener { _, _ -> onTextFocusChanged() }
-                th.setOnTouchListener { _, event ->
-                    if (!isSelectedState && event.actionMasked == MotionEvent.ACTION_UP) {
-                        notifyBoxTapped()
-                    }
-                    false
-                }
                 colHeaderRow.addView(th)
             }
             tableContainer.addView(colHeaderRow)
@@ -778,12 +806,6 @@ class NoteBoxView(
                     }
                 })
                 rh.setOnFocusChangeListener { _, _ -> onTextFocusChanged() }
-                rh.setOnTouchListener { _, event ->
-                    if (!isSelectedState && event.actionMasked == MotionEvent.ACTION_UP) {
-                        notifyBoxTapped()
-                    }
-                    false
-                }
                 rowLayout.addView(rh)
             }
 
@@ -822,12 +844,6 @@ class NoteBoxView(
                     }
                 })
                 cellEdit.setOnFocusChangeListener { _, _ -> onTextFocusChanged() }
-                cellEdit.setOnTouchListener { _, event ->
-                    if (!isSelectedState && event.actionMasked == MotionEvent.ACTION_UP) {
-                        notifyBoxTapped()
-                    }
-                    false
-                }
                 rowLayout.addView(cellEdit)
             }
             tableContainer.addView(rowLayout)
@@ -1193,16 +1209,10 @@ class NoteBoxView(
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(0, 4, 0, 4)
-                setOnClickListener {
-                    if (!isSelectedState) notifyBoxTapped()
-                }
             }
             val checkBox = CheckBox(context).apply {
                 isChecked = item.checked
                 buttonTintList = ColorStateList.valueOf(accentCol)
-                setOnClickListener {
-                    if (!isSelectedState) notifyBoxTapped()
-                }
             }
             val itemEdit = EditText(context).apply {
                 setText(item.text)
@@ -1226,12 +1236,6 @@ class NoteBoxView(
                 }
             })
             itemEdit.setOnFocusChangeListener { _, _ -> onTextFocusChanged() }
-            itemEdit.setOnTouchListener { _, event ->
-                if (!isSelectedState && event.actionMasked == MotionEvent.ACTION_UP) {
-                    notifyBoxTapped()
-                }
-                false
-            }
             checkBox.setOnCheckedChangeListener { _, isChecked ->
                 item.checked = isChecked
                 itemEdit.paintFlags = if (isChecked) {
@@ -1363,6 +1367,17 @@ class NoteBoxView(
             }
             .addItem("Duplicate", subtitle = "Duplicate this card on canvas") {
                 onDuplicateRequested(this)
+            }
+            .addItem(if (data.isLocked) "Unlock Position" else "Lock Position", subtitle = if (data.isLocked) "Allow moving and resizing" else "Fix position and prevent accidental movement") {
+                data.isLocked = !data.isLocked
+                onContentChanged?.invoke()
+                onBoxTapped(this)
+            }
+            .addItem("Bring to Front", subtitle = "Move card above other elements") {
+                onBringToFrontRequested?.invoke(this)
+            }
+            .addItem("Send to Back", subtitle = "Move card behind other elements") {
+                onSendToBackRequested?.invoke(this)
             }
 
         if (data.kind == BoxKind.SHAPE) {
@@ -1568,7 +1583,7 @@ class NoteBoxView(
         if (enabled) {
             setOnClickListener { onSelectedForConnect(this) }
         } else {
-            setOnClickListener { notifyBoxTapped() }
+            setOnClickListener { onBoxTapped(this) }
         }
     }
 

@@ -10,7 +10,7 @@ Built entirely with standard Android SDK components, hardware-accelerated vector
 
 ### 1. Infinite Canvas & High-Performance Engine
 - **24,000 × 24,000 px Workspace**: Seamless, borderless creative surface.
-- **Smooth Pinch-Zoom & Pan**: Zoom from 15% to 400% with hardware-accelerated matrix transforms.
+- **Rock-Solid Gesture Engine**: Strictly requires 2 fingers for pinch-to-zoom (`isQuickScaleEnabled = false`), eliminating accidental 1-finger zooms. Buttery-smooth 1-finger panning on canvas background.
 - **Batched GPU Grid Rendering**: Dot and line grids batched into single-pass GPU draw calls (`drawPoints`/`drawLines`), rendering thousands of grid points at a steady 60–120 FPS.
 - **Zero-Lag Inking & Card Manipulation**: Cached vector ink paths, selective connector invalidation, and debounced touch dispatch ensure lag-free performance even on dense boards with hundreds of elements.
 - **Zoom HUD & Fit-to-Screen**: Real-time zoom level HUD with single-tap Zoom-to-Fit for instant framing of all board content.
@@ -24,7 +24,8 @@ Built entirely with standard Android SDK components, hardware-accelerated vector
   - Dynamic cell scaling that stretches rows and columns proportionally to card bounds without dead space.
   - Multi-line text wrapping with auto-expanding row heights (zero text clipping).
   - Auto-expanding card bounds when adding rows/columns to guarantee visibility, plus quick +/- row & column controls.
-- **Image Cards**: Import photos directly via the Android Photo Picker with aspect-ratio preservation and scaling.
+  - Seamless selection interceptor preventing child scroll views from swallowing taps.
+- **Image Cards & Placeholders**: Import photos directly via the Android Photo Picker with aspect-ratio preservation and scaling. Missing/corrupted images render clean dashed placeholders to prevent click traps.
 - **Sub-Boards**: Embed child boards inside cards for hierarchical multi-level workspaces.
 
 ### 3. Connectors & Directional Arrows
@@ -44,9 +45,12 @@ Built entirely with standard Android SDK components, hardware-accelerated vector
   - **All**: Erases both ink and arrows simultaneously.
 - **One-Tap Cleanups**: Clear all ink drawings or clear all arrows with safe confirmation dialogs.
 
-### 5. Multi-Select & Selection Transform Overlay
-- **Single-Tap Inspection**: Single-tap any card to select it with an 8-handle transform frame without accidentally summoning the virtual keyboard.
-- **Double-Tap Editing**: Double-tap into any card to activate text editing and the formatting toolbar.
+### 5. Multi-Select, Element Locking & Selection Overlay
+- **Single-Tap Immediate Selection**: Single-tap any card (Text, Shape, Table, Checklist, Image, Board) to select it with an 8-handle transform frame without bringing up the virtual keyboard.
+- **Double-Tap Quick Edit**: Double-tap into text cards or sticky notes to jump straight into editing with full cursor focus and formatting tools.
+- **Overlapping Element Cycling**: Tapping an already-selected card seamlessly cycles selection to any underlying or obscured cards at that spot.
+- **Element Position Locking**: Lock icon on the selection bar and in the card context menu. Locked elements have fixed positions, amber selection indicators, suppressed resize handles, and cannot be moved or resized until unlocked.
+- **Z-Order Management**: "Bring to Front" and "Send to Back" options in the card menu for managing overlapping layers.
 - **Lasso Marquee Selection**: Drag across the empty canvas in Select mode to select multiple cards at once for batch moving, recoloring, duplicating, or deletion.
 - **Alignment & Distribution**: Align selected cards Left, Top, or distribute them evenly horizontally.
 

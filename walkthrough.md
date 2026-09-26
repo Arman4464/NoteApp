@@ -134,7 +134,36 @@ NoteApp has been upgraded to a production-ready release with high-precision expo
 
 ---
 
-## 11. Production Release Deliverable
+## 11. Navigation Stability, Unified Selection Architecture, Element Locking & Z-Order
+- **Rock-Solid Two-Finger Pinch Navigation**:
+  - Android's `ScaleGestureDetector` has single-finger quick scaling enabled by default on API 19+, which caused random zooming when tapping or dragging with 1 finger.
+  - Disabled quick scaling (`scaleDetector.isQuickScaleEnabled = false`).
+  - Added strict pointer count checks: `activePointerCount >= 2` required in `onScaleBegin` and `onScale`.
+  - In `onTouchEvent`, `scaleDetector` is only invoked when `event.pointerCount >= 2`, making single-finger accidental zooming physically impossible.
+  - Panning on empty background strictly handles `pointerCount == 1`. When a secondary finger touches down or lifts, pan anchors reset without jumps or jitter.
+- **Unified Card Selection Engine**:
+  - Unified touch interception in `NoteBoxView.onInterceptTouchEvent`: when a card is not selected (`!isSelectedState`), it intercepts all touches so child `ScrollView`, `HorizontalScrollView`, and `EditText` components cannot swallow taps or cancel gestures.
+  - Tapping any card (Text, Shape, Table, Checklist, Image, Sub-Board) immediately selects the card on `ACTION_UP`.
+  - Eliminated the legacy 200ms debounce that was dropping double-taps and fast clicks.
+  - Differentiates single tap (<350ms without drag) vs double-tap seamlessly.
+  - Double-tapping a text card or sticky note enters editing mode directly with focus and soft keyboard.
+  - Selected tables and checklists allow direct interaction with cells, quick controls, and checkboxes.
+- **Overlapping Element Cycling & Missing Image Trap Removal**:
+  - Eliminated the legacy touch trap in `SelectionTransformOverlayView` that consumed all touches within image rectangles.
+  - Missing/deleted image files now render a visible dashed placeholder ("Missing Image (Tap to delete)") instead of an invisible transparent trap.
+  - Implemented overlapping card cycling in `InfiniteCanvasView.handleBoxTapped`: tapping an already-selected card that overlaps other elements cycles selection to the next underlying card, allowing users to select, edit, move, or delete obscured elements effortlessly.
+- **Element Position Locking (`isLocked`)**:
+  - Added `var isLocked: Boolean = false` to `NoteBoxData` with deep copy support and persistent serialization in `CanvasSerializer` for `.noteapp` archives.
+  - Added `btnSelectionLock` ImageButton to `selectionBar` and "Lock Position" / "Unlock Position" to the card context menu.
+  - Visual lock indicator: locked cards display an amber border (`#F59E0B`), a `🔒 Locked — ` heading, and suppressed resize handles.
+  - Locked cards cannot be moved via handles, heading drag, card dragging, group drag, or grid snap until unlocked.
+- **Z-Order Management**:
+  - Added "Bring to Front" and "Send to Back" options in the card context menu.
+  - Layer-safe reordering: preserves bottom background connectors and ink layers, places cards in requested order, and maintains foreground overlay layers at the top.
+
+---
+
+## 12. Production Release Deliverable
 - Built with `.\gradlew.bat assembleRelease` (non-debuggable release build).
 - Output release APK generated and copied to project root as `NoteApp.apk` (5.7 MB).
 
