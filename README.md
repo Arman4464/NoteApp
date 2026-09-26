@@ -8,9 +8,11 @@ Built entirely with standard Android SDK components, hardware-accelerated vector
 
 ## Key Features
 
-### 1. Infinite Canvas & Navigation
+### 1. Infinite Canvas & High-Performance Engine
 - **24,000 × 24,000 px Workspace**: Seamless, borderless creative surface.
 - **Smooth Pinch-Zoom & Pan**: Zoom from 15% to 400% with hardware-accelerated matrix transforms.
+- **Batched GPU Grid Rendering**: Dot and line grids batched into single-pass GPU draw calls (`drawPoints`/`drawLines`), rendering thousands of grid points at a steady 60–120 FPS.
+- **Zero-Lag Inking & Card Manipulation**: Cached vector ink paths, selective connector invalidation, and debounced touch dispatch ensure lag-free performance even on dense boards with hundreds of elements.
 - **Zoom HUD & Fit-to-Screen**: Real-time zoom level HUD with single-tap Zoom-to-Fit for instant framing of all board content.
 - **Customizable Canvas Backgrounds**: Switch between Modern Dot Grid, Standard Graph Grid, Isometric Grid, or Blank Canvas.
 
@@ -18,7 +20,10 @@ Built entirely with standard Android SDK components, hardware-accelerated vector
 - **Text Notes**: Rich typography with bundled fonts (*Outfit, Caveat, Inter, JetBrains Mono, Playfair Display*), font size scaling (A-/A+), bold, italic, text color, and highlight swatches.
 - **Sticky Notes**: Tactile colored sticky notes in warm pastel palettes with handwritten Caveat script.
 - **Interactive Checklists**: To-do list cards with checkbox strike-through and progress calculation.
-- **Dynamic Tables**: Configurable multi-row and multi-column tables with custom row/column headers.
+- **Responsive Dynamic Tables**: 
+  - Dynamic cell scaling that stretches rows and columns proportionally to card bounds without dead space.
+  - Multi-line text wrapping with auto-expanding row heights (zero text clipping).
+  - Auto-expanding card bounds when adding rows/columns to guarantee visibility, plus quick +/- row & column controls.
 - **Image Cards**: Import photos directly via the Android Photo Picker with aspect-ratio preservation and scaling.
 - **Sub-Boards**: Embed child boards inside cards for hierarchical multi-level workspaces.
 

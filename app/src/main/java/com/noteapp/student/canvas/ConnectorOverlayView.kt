@@ -46,11 +46,18 @@ class ConnectorOverlayView(context: Context, attrs: AttributeSet? = null) : View
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        val boxes = boxProvider?.invoke() ?: emptyList()
         val connectors = connectorProvider?.invoke() ?: emptyList()
-        val boxMap = boxes.associateBy { it.data.id }
+        val preview = previewArrow
+        if (connectors.isEmpty() && preview == null) return
 
         val filter = renderForegroundOnly
+        val hasMatching = connectors.any { filter == null || it.isForeground == filter } ||
+                (preview != null && (filter == null || preview.isForeground == filter))
+        if (!hasMatching) return
+
+        val boxes = boxProvider?.invoke() ?: emptyList()
+        val boxMap = boxes.associateBy { it.data.id }
+
         for (conn in connectors) {
             if (filter != null && conn.isForeground != filter) continue
             val from = if (conn.fromId.isNotBlank()) boxMap[conn.fromId]?.data else null
@@ -59,11 +66,11 @@ class ConnectorOverlayView(context: Context, attrs: AttributeSet? = null) : View
         }
 
         // Draw active in-progress drag preview if present
-        previewArrow?.let { preview ->
-            if (filter == null || preview.isForeground == filter) {
-                val from = if (preview.fromId.isNotBlank()) boxMap[preview.fromId]?.data else null
-                val to = if (preview.toId.isNotBlank()) boxMap[preview.toId]?.data else null
-                renderConnectorDirect(canvas, preview, from, to, scale = 1f, linePaint, arrowFillPaint, arrowStrokePaint)
+        preview?.let { previewItem ->
+            if (filter == null || previewItem.isForeground == filter) {
+                val from = if (previewItem.fromId.isNotBlank()) boxMap[previewItem.fromId]?.data else null
+                val to = if (previewItem.toId.isNotBlank()) boxMap[previewItem.toId]?.data else null
+                renderConnectorDirect(canvas, previewItem, from, to, scale = 1f, linePaint, arrowFillPaint, arrowStrokePaint)
             }
         }
     }

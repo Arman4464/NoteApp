@@ -108,6 +108,15 @@ class NoteBoxView(
             }
         }
 
+    private var lastTappedTime = 0L
+    private fun notifyBoxTapped() {
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now - lastTappedTime > 200) {
+            lastTappedTime = now
+            onBoxTapped(this)
+        }
+    }
+
     init {
         setWillNotDraw(false)
         updateBackgroundShape()
@@ -132,7 +141,7 @@ class NoteBoxView(
         y = data.y
 
         setOnClickListener {
-            onBoxTapped(this)
+            notifyBoxTapped()
         }
     }
 
@@ -150,7 +159,7 @@ class NoteBoxView(
                     val density = resources.displayMetrics.density
                     if (hypot(dx.toDouble(), dy.toDouble()) > 8 * density) {
                         if (!isSelectedState) {
-                            onBoxTapped(this)
+                            notifyBoxTapped()
                         }
                         isDraggingSelf = true
                         parent?.requestDisallowInterceptTouchEvent(true)
@@ -177,7 +186,7 @@ class NoteBoxView(
                     val density = resources.displayMetrics.density
                     if (!isDraggingSelf && hypot(dx.toDouble(), dy.toDouble()) > 8 * density) {
                         if (!isSelectedState) {
-                            onBoxTapped(this)
+                            notifyBoxTapped()
                         }
                         isDraggingSelf = true
                         parent?.requestDisallowInterceptTouchEvent(true)
@@ -199,7 +208,7 @@ class NoteBoxView(
                         return true
                     } else {
                         if (!isSelectedState) {
-                            onBoxTapped(this)
+                            notifyBoxTapped()
                         }
                         return true
                     }
@@ -501,14 +510,14 @@ class NoteBoxView(
         val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
                 if (!isSelectedState) {
-                    onBoxTapped(this@NoteBoxView)
+                    notifyBoxTapped()
                 }
                 return true
             }
 
             override fun onDoubleTap(e: MotionEvent): Boolean {
                 if (!isSelectedState) {
-                    onBoxTapped(this@NoteBoxView)
+                    notifyBoxTapped()
                 }
                 enterTextEditing()
                 return true
@@ -551,7 +560,7 @@ class NoteBoxView(
         scroll.addView(checklistContainer)
         scroll.setOnTouchListener { _, event ->
             if (!isSelectedState && event.actionMasked == MotionEvent.ACTION_UP) {
-                onBoxTapped(this@NoteBoxView)
+                notifyBoxTapped()
             }
             false
         }
@@ -563,28 +572,30 @@ class NoteBoxView(
         val density = resources.displayMetrics.density
         val vScroll = ScrollView(context).apply {
             clipToPadding = false
+            isFillViewport = true
             setPadding(0, 0, 0, (16 * density).toInt())
         }
         val hScroll = HorizontalScrollView(context).apply {
             clipToPadding = false
+            isFillViewport = true
             setPadding(0, 0, 0, 0)
         }
         tableContainer = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding((16 * density).toInt(), (18 * density).toInt(), (16 * density).toInt(), (24 * density).toInt())
         }
-        hScroll.addView(tableContainer)
-        vScroll.addView(hScroll)
+        hScroll.addView(tableContainer, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        vScroll.addView(hScroll, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
 
         vScroll.setOnTouchListener { _, event ->
             if (!isSelectedState && event.actionMasked == MotionEvent.ACTION_UP) {
-                onBoxTapped(this@NoteBoxView)
+                notifyBoxTapped()
             }
             false
         }
         hScroll.setOnTouchListener { _, event ->
             if (!isSelectedState && event.actionMasked == MotionEvent.ACTION_UP) {
-                onBoxTapped(this@NoteBoxView)
+                notifyBoxTapped()
             }
             false
         }
@@ -593,7 +604,7 @@ class NoteBoxView(
         return vScroll
     }
 
-    private fun rebuildTable() {
+    fun rebuildTable() {
         if (!::tableContainer.isInitialized) return
         tableContainer.removeAllViews()
 
@@ -621,6 +632,42 @@ class NoteBoxView(
         val showColHeaders = (table.colHeaders != TableIndexStyle.NONE)
         val showRowHeaders = (table.rowHeaders != TableIndexStyle.NONE)
 
+        val minColWidth = (84 * density).toInt()
+        val minRowHeight = (40 * density).toInt()
+
+        val headerColWidth = if (showRowHeaders) (44 * density).toInt() else 0
+        val headerRowHeight = if (showColHeaders) (36 * density).toInt() else 0
+        val controlsH = if (isSelectedState) (44 * density).toInt() else 0
+
+        val padH = (32 * density).toInt()
+        val padV = (42 * density).toInt()
+
+        val reqMinW = padH + headerColWidth + (table.cols * minColWidth)
+        val reqMinH = padV + headerRowHeight + (table.rows * minRowHeight) + controlsH
+
+        if (data.width < reqMinW) {
+            data.width = reqMinW.toFloat()
+            val lp = layoutParams
+            if (lp != null) {
+                lp.width = data.width.toInt()
+                layoutParams = lp
+            }
+        }
+        if (data.height < reqMinH) {
+            data.height = reqMinH.toFloat()
+            val lp = layoutParams
+            if (lp != null) {
+                lp.height = data.height.toInt()
+                layoutParams = lp
+            }
+        }
+
+        val availableW = (data.width - padH - headerColWidth).toInt()
+        val availableH = (data.height - padV - headerRowHeight - controlsH).toInt()
+
+        val dynamicColWidth = if (table.cols > 0) max(minColWidth, availableW / table.cols) else minColWidth
+        val dynamicRowHeight = if (table.rows > 0) max(minRowHeight, availableH / table.rows) else minRowHeight
+
         // 1. Column Header Row (if enabled)
         if (showColHeaders) {
             val colHeaderRow = LinearLayout(context).apply {
@@ -629,7 +676,7 @@ class NoteBoxView(
             }
             if (showRowHeaders) {
                 val corner = TextView(context).apply {
-                    layoutParams = LinearLayout.LayoutParams((44 * density).toInt(), (36 * density).toInt())
+                    layoutParams = LinearLayout.LayoutParams(headerColWidth, headerRowHeight)
                     background = GradientDrawable().apply {
                         shape = GradientDrawable.RECTANGLE
                         setColor(headerBg)
@@ -645,7 +692,7 @@ class NoteBoxView(
                 val defaultColLabel = getColHeaderLabel(c, table.colHeaders)
 
                 val th = EditText(context).apply {
-                    layoutParams = LinearLayout.LayoutParams((84 * density).toInt(), (36 * density).toInt())
+                    layoutParams = LinearLayout.LayoutParams(dynamicColWidth, headerRowHeight)
                     setText(colLabel)
                     hint = defaultColLabel
                     textSize = 12f
@@ -655,7 +702,8 @@ class NoteBoxView(
                     setTextColor(headerTextColor)
                     setHintTextColor(if (isDark) Color.parseColor("#64748B") else Color.parseColor("#94A3B8"))
                     gravity = Gravity.CENTER
-                    isSingleLine = true
+                    isSingleLine = false
+                    maxLines = 2
                     background = GradientDrawable().apply {
                         shape = GradientDrawable.RECTANGLE
                         setColor(headerBg)
@@ -674,7 +722,7 @@ class NoteBoxView(
                 th.setOnFocusChangeListener { _, _ -> onTextFocusChanged() }
                 th.setOnTouchListener { _, event ->
                     if (!isSelectedState && event.actionMasked == MotionEvent.ACTION_UP) {
-                        onBoxTapped(this@NoteBoxView)
+                        notifyBoxTapped()
                     }
                     false
                 }
@@ -688,6 +736,11 @@ class NoteBoxView(
             val rowLayout = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
+                minimumHeight = dynamicRowHeight
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
             }
             if (showRowHeaders) {
                 val rowLabel = if (r < table.customRowLabels.size && table.customRowLabels[r].isNotEmpty()) {
@@ -696,17 +749,19 @@ class NoteBoxView(
                 val defaultRowLabel = getRowHeaderLabel(r, table.rowHeaders)
 
                 val rh = EditText(context).apply {
-                    layoutParams = LinearLayout.LayoutParams((44 * density).toInt(), (40 * density).toInt())
+                    layoutParams = LinearLayout.LayoutParams(headerColWidth, LinearLayout.LayoutParams.MATCH_PARENT)
+                    minimumHeight = dynamicRowHeight
                     setText(rowLabel)
                     hint = defaultRowLabel
                     textSize = 12f
                     includeFontPadding = false
-                    setPadding((4 * density).toInt(), 0, (4 * density).toInt(), 0)
+                    setPadding((4 * density).toInt(), (4 * density).toInt(), (4 * density).toInt(), (4 * density).toInt())
                     setTypeface(null, Typeface.BOLD)
                     setTextColor(headerTextColor)
                     setHintTextColor(if (isDark) Color.parseColor("#64748B") else Color.parseColor("#94A3B8"))
                     gravity = Gravity.CENTER
-                    isSingleLine = true
+                    isSingleLine = false
+                    maxLines = 3
                     background = GradientDrawable().apply {
                         shape = GradientDrawable.RECTANGLE
                         setColor(headerBg)
@@ -725,7 +780,7 @@ class NoteBoxView(
                 rh.setOnFocusChangeListener { _, _ -> onTextFocusChanged() }
                 rh.setOnTouchListener { _, event ->
                     if (!isSelectedState && event.actionMasked == MotionEvent.ACTION_UP) {
-                        onBoxTapped(this@NoteBoxView)
+                        notifyBoxTapped()
                     }
                     false
                 }
@@ -734,7 +789,8 @@ class NoteBoxView(
 
             for (c in 0 until table.cols) {
                 val cellEdit = EditText(context).apply {
-                    layoutParams = LinearLayout.LayoutParams((84 * density).toInt(), (40 * density).toInt())
+                    layoutParams = LinearLayout.LayoutParams(dynamicColWidth, LinearLayout.LayoutParams.MATCH_PARENT)
+                    minimumHeight = dynamicRowHeight
                     setText(table.cells[r][c])
                     textSize = data.fontSizeSp.coerceIn(11f, 18f)
                     includeFontPadding = false
@@ -742,8 +798,13 @@ class NoteBoxView(
                     setHintTextColor(if (isDark) Color.parseColor("#64748B") else Color.parseColor("#94A3B8"))
                     hint = "..."
                     gravity = Gravity.CENTER_VERTICAL or Gravity.START
-                    setPadding((8 * density).toInt(), 0, (8 * density).toInt(), 0)
-                    isSingleLine = true
+                    setPadding((8 * density).toInt(), (6 * density).toInt(), (8 * density).toInt(), (6 * density).toInt())
+                    isSingleLine = false
+                    maxLines = 10
+                    inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                                android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+                                android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+                    setHorizontallyScrolling(false)
                     background = GradientDrawable().apply {
                         shape = GradientDrawable.RECTANGLE
                         setColor(Color.TRANSPARENT)
@@ -763,7 +824,7 @@ class NoteBoxView(
                 cellEdit.setOnFocusChangeListener { _, _ -> onTextFocusChanged() }
                 cellEdit.setOnTouchListener { _, event ->
                     if (!isSelectedState && event.actionMasked == MotionEvent.ACTION_UP) {
-                        onBoxTapped(this@NoteBoxView)
+                        notifyBoxTapped()
                     }
                     false
                 }
@@ -794,6 +855,16 @@ class NoteBoxView(
             setOnClickListener {
                 table.rows++
                 table.cells.add(MutableList(table.cols) { "" })
+                val checkMinH = padV + headerRowHeight + (table.rows * minRowHeight) + controlsH
+                if (data.height < checkMinH) {
+                    data.height = checkMinH.toFloat()
+                    val lp = layoutParams
+                    if (lp != null) {
+                        lp.height = data.height.toInt()
+                        layoutParams = lp
+                    }
+                    onResized()
+                }
                 rebuildTable()
                 onContentChanged?.invoke()
             }
@@ -821,13 +892,175 @@ class NoteBoxView(
                 for (row in table.cells) {
                     row.add("")
                 }
+                val checkMinW = padH + headerColWidth + (table.cols * minColWidth)
+                if (data.width < checkMinW) {
+                    data.width = checkMinW.toFloat()
+                    val currentLp = layoutParams
+                    if (currentLp != null) {
+                        currentLp.width = data.width.toInt()
+                        layoutParams = currentLp
+                    }
+                    onResized()
+                }
                 rebuildTable()
                 onContentChanged?.invoke()
             }
         }
         controlsLayout.addView(btnAddRow)
         controlsLayout.addView(btnAddCol)
+
+        if (table.rows > 1) {
+            val btnRemoveRow = TextView(context).apply {
+                text = "- Row"
+                setTextColor(if (isDark) Color.parseColor("#94A3B8") else Color.parseColor("#64748B"))
+                textSize = 12f
+                setTypeface(null, Typeface.BOLD)
+                val lp = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    marginStart = (8 * density).toInt()
+                }
+                layoutParams = lp
+                setPadding((10 * density).toInt(), (6 * density).toInt(), (10 * density).toInt(), (6 * density).toInt())
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = 8 * density
+                    setColor(if (isDark) Color.argb(20, 255, 255, 255) else Color.argb(12, 0, 0, 0))
+                }
+                setOnClickListener {
+                    if (table.rows > 1) {
+                        table.rows--
+                        if (table.cells.isNotEmpty()) table.cells.removeAt(table.cells.size - 1)
+                        if (table.customRowLabels.size > table.rows) table.customRowLabels.removeAt(table.rows)
+                        rebuildTable()
+                        onContentChanged?.invoke()
+                    }
+                }
+            }
+            controlsLayout.addView(btnRemoveRow)
+        }
+
+        if (table.cols > 1) {
+            val btnRemoveCol = TextView(context).apply {
+                text = "- Col"
+                setTextColor(if (isDark) Color.parseColor("#94A3B8") else Color.parseColor("#64748B"))
+                textSize = 12f
+                setTypeface(null, Typeface.BOLD)
+                val lp = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    marginStart = (8 * density).toInt()
+                }
+                layoutParams = lp
+                setPadding((10 * density).toInt(), (6 * density).toInt(), (10 * density).toInt(), (6 * density).toInt())
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = 8 * density
+                    setColor(if (isDark) Color.argb(20, 255, 255, 255) else Color.argb(12, 0, 0, 0))
+                }
+                setOnClickListener {
+                    if (table.cols > 1) {
+                        table.cols--
+                        for (row in table.cells) {
+                            if (row.isNotEmpty()) row.removeAt(row.size - 1)
+                        }
+                        if (table.customColLabels.size > table.cols) table.customColLabels.removeAt(table.cols)
+                        rebuildTable()
+                        onContentChanged?.invoke()
+                    }
+                }
+            }
+            controlsLayout.addView(btnRemoveCol)
+        }
+
         tableContainer.addView(controlsLayout)
+    }
+
+    fun updateTableDimensions() {
+        if (!::tableContainer.isInitialized || tableContainer.childCount == 0) {
+            rebuildTable()
+            return
+        }
+        val table = data.tableData ?: return
+        val density = resources.displayMetrics.density
+        val minColWidth = (84 * density).toInt()
+        val minRowHeight = (40 * density).toInt()
+
+        val showColHeaders = (table.colHeaders != TableIndexStyle.NONE)
+        val showRowHeaders = (table.rowHeaders != TableIndexStyle.NONE)
+
+        val headerColWidth = if (showRowHeaders) (44 * density).toInt() else 0
+        val headerRowHeight = if (showColHeaders) (36 * density).toInt() else 0
+        val controlsH = if (isSelectedState) (44 * density).toInt() else 0
+
+        val padH = (32 * density).toInt()
+        val padV = (42 * density).toInt()
+
+        val availableW = (data.width - padH - headerColWidth).toInt()
+        val availableH = (data.height - padV - headerRowHeight - controlsH).toInt()
+
+        val dynamicColWidth = if (table.cols > 0) max(minColWidth, availableW / table.cols) else minColWidth
+        val dynamicRowHeight = if (table.rows > 0) max(minRowHeight, availableH / table.rows) else minRowHeight
+
+        var childIdx = 0
+        if (showColHeaders && childIdx < tableContainer.childCount) {
+            val colHeaderRow = tableContainer.getChildAt(childIdx) as? LinearLayout
+            if (colHeaderRow != null) {
+                val startCol = if (showRowHeaders) 1 else 0
+                for (c in startCol until colHeaderRow.childCount) {
+                    val th = colHeaderRow.getChildAt(c)
+                    val lp = th.layoutParams
+                    if (lp.width != dynamicColWidth) {
+                        lp.width = dynamicColWidth
+                        th.layoutParams = lp
+                    }
+                }
+            }
+            childIdx++
+        }
+
+        for (r in 0 until table.rows) {
+            if (childIdx >= tableContainer.childCount) break
+            val rowLayout = tableContainer.getChildAt(childIdx) as? LinearLayout
+            if (rowLayout != null) {
+                if (rowLayout.minimumHeight != dynamicRowHeight) {
+                    rowLayout.minimumHeight = dynamicRowHeight
+                }
+                val startCol = if (showRowHeaders) 1 else 0
+                if (showRowHeaders && rowLayout.childCount > 0) {
+                    val rh = rowLayout.getChildAt(0)
+                    if (rh.minimumHeight != dynamicRowHeight) {
+                        rh.minimumHeight = dynamicRowHeight
+                    }
+                }
+                for (c in startCol until rowLayout.childCount) {
+                    val cell = rowLayout.getChildAt(c)
+                    val lp = cell.layoutParams
+                    var changed = false
+                    if (lp.width != dynamicColWidth) {
+                        lp.width = dynamicColWidth
+                        changed = true
+                    }
+                    if (cell.minimumHeight != dynamicRowHeight) {
+                        cell.minimumHeight = dynamicRowHeight
+                        changed = true
+                    }
+                    if (changed) {
+                        cell.layoutParams = lp
+                    }
+                }
+            }
+            childIdx++
+        }
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        if (data.kind == BoxKind.TABLE && (w != oldw || h != oldh) && oldw > 0 && oldh > 0) {
+            updateTableDimensions()
+        }
     }
 
     private fun toLetter(index: Int): String {
@@ -961,14 +1194,14 @@ class NoteBoxView(
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(0, 4, 0, 4)
                 setOnClickListener {
-                    if (!isSelectedState) onBoxTapped(this@NoteBoxView)
+                    if (!isSelectedState) notifyBoxTapped()
                 }
             }
             val checkBox = CheckBox(context).apply {
                 isChecked = item.checked
                 buttonTintList = ColorStateList.valueOf(accentCol)
                 setOnClickListener {
-                    if (!isSelectedState) onBoxTapped(this@NoteBoxView)
+                    if (!isSelectedState) notifyBoxTapped()
                 }
             }
             val itemEdit = EditText(context).apply {
@@ -995,7 +1228,7 @@ class NoteBoxView(
             itemEdit.setOnFocusChangeListener { _, _ -> onTextFocusChanged() }
             itemEdit.setOnTouchListener { _, event ->
                 if (!isSelectedState && event.actionMasked == MotionEvent.ACTION_UP) {
-                    onBoxTapped(this@NoteBoxView)
+                    notifyBoxTapped()
                 }
                 false
             }
@@ -1167,28 +1400,65 @@ class NoteBoxView(
 
         if (data.kind == BoxKind.TABLE) {
             val table = data.tableData ?: TableData().also { data.tableData = it }
+            val density = resources.displayMetrics.density
+            val minColWidth = (84 * density).toInt()
+            val minRowHeight = (40 * density).toInt()
+            val showColH = (table.colHeaders != TableIndexStyle.NONE)
+            val showRowH = (table.rowHeaders != TableIndexStyle.NONE)
+            val headerColW = if (showRowH) (44 * density).toInt() else 0
+            val headerRowH = if (showColH) (36 * density).toInt() else 0
+            val padH = (32 * density).toInt()
+            val padV = (42 * density).toInt()
+            val controlsH = (44 * density).toInt()
+
             builder.addItem("Add Row", subtitle = "Insert new row at bottom") {
                 table.rows++
                 table.cells.add(MutableList(table.cols) { "" })
+                val checkMinH = padV + headerRowH + (table.rows * minRowHeight) + controlsH
+                if (data.height < checkMinH) {
+                    data.height = checkMinH.toFloat()
+                    val lp = layoutParams
+                    if (lp != null) {
+                        lp.height = data.height.toInt()
+                        layoutParams = lp
+                    }
+                    onResized()
+                }
                 rebuildTable()
+                onContentChanged?.invoke()
             }
             builder.addItem("Add Column", subtitle = "Insert new column at right") {
                 table.cols++
                 for (r in table.cells) r.add("")
+                val checkMinW = padH + headerColW + (table.cols * minColWidth)
+                if (data.width < checkMinW) {
+                    data.width = checkMinW.toFloat()
+                    val lp = layoutParams
+                    if (lp != null) {
+                        lp.width = data.width.toInt()
+                        layoutParams = lp
+                    }
+                    onResized()
+                }
                 rebuildTable()
+                onContentChanged?.invoke()
             }
             if (table.rows > 1) {
                 builder.addItem("Delete Last Row", subtitle = "Remove bottom row") {
                     table.rows--
                     if (table.cells.isNotEmpty()) table.cells.removeAt(table.cells.size - 1)
+                    if (table.customRowLabels.size > table.rows) table.customRowLabels.removeAt(table.rows)
                     rebuildTable()
+                    onContentChanged?.invoke()
                 }
             }
             if (table.cols > 1) {
                 builder.addItem("Delete Last Column", subtitle = "Remove rightmost column") {
                     table.cols--
                     for (r in table.cells) if (r.isNotEmpty()) r.removeAt(r.size - 1)
+                    if (table.customColLabels.size > table.cols) table.customColLabels.removeAt(table.cols)
                     rebuildTable()
+                    onContentChanged?.invoke()
                 }
             }
         }
@@ -1282,6 +1552,7 @@ class NoteBoxView(
         updateBackgroundShape()
         if (data.kind == BoxKind.TABLE) {
             tableControlsLayout?.visibility = if (selected) View.VISIBLE else View.GONE
+            updateTableDimensions()
         }
         invalidate()
     }
@@ -1297,7 +1568,7 @@ class NoteBoxView(
         if (enabled) {
             setOnClickListener { onSelectedForConnect(this) }
         } else {
-            setOnClickListener { onBoxTapped(this) }
+            setOnClickListener { notifyBoxTapped() }
         }
     }
 

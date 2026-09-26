@@ -60,6 +60,26 @@ class DrawingOverlayView(context: Context, attrs: AttributeSet? = null) : View(c
         }
     }
 
+    private fun getOrCreateStrokePath(stroke: DrawingStrokeData): Path {
+        stroke.cachedPath?.let { return it }
+        val path = Path()
+        if (stroke.points.isNotEmpty()) {
+            val first = stroke.points[0]
+            path.moveTo(first.first, first.second)
+            for (i in 1 until stroke.points.size) {
+                val p0 = stroke.points[i - 1]
+                val p1 = stroke.points[i]
+                val midX = (p0.first + p1.first) / 2f
+                val midY = (p0.second + p1.second) / 2f
+                path.quadTo(p0.first, p0.second, midX, midY)
+            }
+            val last = stroke.points.last()
+            path.lineTo(last.first, last.second)
+        }
+        stroke.cachedPath = path
+        return path
+    }
+
     private fun drawStroke(canvas: Canvas, stroke: DrawingStrokeData) {
         if (stroke.points.isEmpty()) return
 
@@ -85,18 +105,23 @@ class DrawingOverlayView(context: Context, attrs: AttributeSet? = null) : View(c
             return
         }
 
-        val path = Path()
-        val first = stroke.points[0]
-        path.moveTo(first.first, first.second)
-        for (i in 1 until stroke.points.size) {
-            val p0 = stroke.points[i - 1]
-            val p1 = stroke.points[i]
-            val midX = (p0.first + p1.first) / 2f
-            val midY = (p0.second + p1.second) / 2f
-            path.quadTo(p0.first, p0.second, midX, midY)
+        val path = if (stroke === currentStroke) {
+            currentPath.reset()
+            val first = stroke.points[0]
+            currentPath.moveTo(first.first, first.second)
+            for (i in 1 until stroke.points.size) {
+                val p0 = stroke.points[i - 1]
+                val p1 = stroke.points[i]
+                val midX = (p0.first + p1.first) / 2f
+                val midY = (p0.second + p1.second) / 2f
+                currentPath.quadTo(p0.first, p0.second, midX, midY)
+            }
+            val last = stroke.points.last()
+            currentPath.lineTo(last.first, last.second)
+            currentPath
+        } else {
+            getOrCreateStrokePath(stroke)
         }
-        val last = stroke.points.last()
-        path.lineTo(last.first, last.second)
         canvas.drawPath(path, paint)
     }
 
@@ -142,6 +167,7 @@ class DrawingOverlayView(context: Context, attrs: AttributeSet? = null) : View(c
             MotionEvent.ACTION_UP -> {
                 val stroke = currentStroke
                 if (stroke != null && stroke.points.isNotEmpty()) {
+                    stroke.cachedPath = null
                     strokes.add(stroke)
                     currentStroke = null
                     invalidate()

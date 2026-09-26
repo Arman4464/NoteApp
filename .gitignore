@@ -44,3 +44,9 @@ captures/
 # OS specific
 .DS_Store
 Thumbs.db
+
+# Node / Web
+node_modules/
+dist/
+.vite/
+web/

@@ -275,6 +275,9 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
                 lastTouchX = event.x
                 lastTouchY = event.y
 
+                val minW = getBoxMinWidth(box)
+                val minH = getBoxMinHeight(box)
+
                 when (activeHandle) {
                     HANDLE_HEADING -> {
                         // Drag heading moves the element!
@@ -283,7 +286,7 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
                     HANDLE_TOP_LEFT -> {
                         if (box.data.kind == BoxKind.IMAGE) {
                             val aspect = initialWidth / initialHeight.coerceAtLeast(0.01f)
-                            val newW = max(box.data.width - dx, MIN_HEIGHT * aspect)
+                            val newW = max(box.data.width - dx, minH * aspect)
                             val newH = newW / aspect
                             box.data.x += (box.data.width - newW)
                             box.data.y += (box.data.height - newH)
@@ -293,11 +296,11 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
                         } else {
                             val newW = box.data.width - dx
                             val newH = box.data.height - dy
-                            if (newW >= MIN_WIDTH) {
+                            if (newW >= minW) {
                                 box.data.x += dx
                                 box.data.width = newW
                             }
-                            if (newH >= MIN_HEIGHT) {
+                            if (newH >= minH) {
                                 box.data.y += dy
                                 box.data.height = newH
                             }
@@ -307,7 +310,7 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
                     HANDLE_TOP_CENTER -> {
                         if (box.data.kind == BoxKind.IMAGE) {
                             val aspect = initialWidth / initialHeight.coerceAtLeast(0.01f)
-                            val newH = max(box.data.height - dy, MIN_HEIGHT)
+                            val newH = max(box.data.height - dy, minH)
                             val newW = newH * aspect
                             box.data.y += (box.data.height - newH)
                             box.data.width = newW
@@ -315,7 +318,7 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
                             applyBoxBounds(box)
                         } else {
                             val newH = box.data.height - dy
-                            if (newH >= MIN_HEIGHT) {
+                            if (newH >= minH) {
                                 box.data.y += dy
                                 box.data.height = newH
                             }
@@ -325,7 +328,7 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
                     HANDLE_TOP_RIGHT -> {
                         if (box.data.kind == BoxKind.IMAGE) {
                             val aspect = initialWidth / initialHeight.coerceAtLeast(0.01f)
-                            val newW = max(box.data.width + dx, MIN_HEIGHT * aspect)
+                            val newW = max(box.data.width + dx, minH * aspect)
                             val newH = newW / aspect
                             box.data.y += (box.data.height - newH)
                             box.data.width = newW
@@ -334,10 +337,10 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
                         } else {
                             val newW = box.data.width + dx
                             val newH = box.data.height - dy
-                            if (newW >= MIN_WIDTH) {
+                            if (newW >= minW) {
                                 box.data.width = newW
                             }
-                            if (newH >= MIN_HEIGHT) {
+                            if (newH >= minH) {
                                 box.data.y += dy
                                 box.data.height = newH
                             }
@@ -347,14 +350,14 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
                     HANDLE_RIGHT_CENTER -> {
                         if (box.data.kind == BoxKind.IMAGE) {
                             val aspect = initialWidth / initialHeight.coerceAtLeast(0.01f)
-                            val newW = max(box.data.width + dx, MIN_WIDTH)
+                            val newW = max(box.data.width + dx, minW)
                             val newH = newW / aspect
                             box.data.width = newW
                             box.data.height = newH
                             applyBoxBounds(box)
                         } else {
                             val newW = box.data.width + dx
-                            if (newW >= MIN_WIDTH) {
+                            if (newW >= minW) {
                                 box.data.width = newW
                             }
                             applyBoxBounds(box)
@@ -363,7 +366,7 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
                     HANDLE_BOTTOM_RIGHT -> {
                         if (box.data.kind == BoxKind.IMAGE) {
                             val aspect = initialWidth / initialHeight.coerceAtLeast(0.01f)
-                            val newW = max(box.data.width + dx, MIN_HEIGHT * aspect)
+                            val newW = max(box.data.width + dx, minH * aspect)
                             val newH = newW / aspect
                             box.data.width = newW
                             box.data.height = newH
@@ -371,10 +374,10 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
                         } else {
                             val newW = box.data.width + dx
                             val newH = box.data.height + dy
-                            if (newW >= MIN_WIDTH) {
+                            if (newW >= minW) {
                                 box.data.width = newW
                             }
-                            if (newH >= MIN_HEIGHT) {
+                            if (newH >= minH) {
                                 box.data.height = newH
                             }
                             applyBoxBounds(box)
@@ -383,14 +386,14 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
                     HANDLE_BOTTOM_CENTER -> {
                         if (box.data.kind == BoxKind.IMAGE) {
                             val aspect = initialWidth / initialHeight.coerceAtLeast(0.01f)
-                            val newH = max(box.data.height + dy, MIN_HEIGHT)
+                            val newH = max(box.data.height + dy, minH)
                             val newW = newH * aspect
                             box.data.width = newW
                             box.data.height = newH
                             applyBoxBounds(box)
                         } else {
                             val newH = box.data.height + dy
-                            if (newH >= MIN_HEIGHT) {
+                            if (newH >= minH) {
                                 box.data.height = newH
                             }
                             applyBoxBounds(box)
@@ -399,7 +402,7 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
                     HANDLE_BOTTOM_LEFT -> {
                         if (box.data.kind == BoxKind.IMAGE) {
                             val aspect = initialWidth / initialHeight.coerceAtLeast(0.01f)
-                            val newW = max(box.data.width - dx, MIN_HEIGHT * aspect)
+                            val newW = max(box.data.width - dx, minH * aspect)
                             val newH = newW / aspect
                             box.data.x += (box.data.width - newW)
                             box.data.width = newW
@@ -408,10 +411,10 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
                         } else {
                             val newW = box.data.width - dx
                             val newH = box.data.height + dy
-                            if (newW >= MIN_WIDTH) {
+                            if (newW >= minW) {
                                 box.data.width = newW
                             }
-                            if (newH >= MIN_HEIGHT) {
+                            if (newH >= minH) {
                                 box.data.height = newH
                             }
                             applyBoxBounds(box)
@@ -420,7 +423,7 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
                     HANDLE_LEFT_CENTER -> {
                         if (box.data.kind == BoxKind.IMAGE) {
                             val aspect = initialWidth / initialHeight.coerceAtLeast(0.01f)
-                            val newW = max(box.data.width - dx, MIN_WIDTH)
+                            val newW = max(box.data.width - dx, minW)
                             val newH = newW / aspect
                             box.data.x += (box.data.width - newW)
                             box.data.width = newW
@@ -428,7 +431,7 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
                             applyBoxBounds(box)
                         } else {
                             val newW = box.data.width - dx
-                            if (newW >= MIN_WIDTH) {
+                            if (newW >= minW) {
                                 box.data.x += dx
                                 box.data.width = newW
                             }
@@ -459,6 +462,33 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
             }
         }
         return false
+    }
+
+    private fun getBoxMinWidth(box: NoteBoxView): Float {
+        if (box.data.kind == BoxKind.TABLE) {
+            val table = box.data.tableData ?: return MIN_WIDTH
+            val density = box.resources.displayMetrics.density
+            val showRowH = (table.rowHeaders != TableIndexStyle.NONE)
+            val headerW = if (showRowH) (44f * density) else 0f
+            val padH = 32f * density
+            val minColW = 84f * density
+            return padH + headerW + table.cols * minColW
+        }
+        return MIN_WIDTH
+    }
+
+    private fun getBoxMinHeight(box: NoteBoxView): Float {
+        if (box.data.kind == BoxKind.TABLE) {
+            val table = box.data.tableData ?: return MIN_HEIGHT
+            val density = box.resources.displayMetrics.density
+            val showColH = (table.colHeaders != TableIndexStyle.NONE)
+            val headerH = if (showColH) (36f * density) else 0f
+            val padV = 42f * density
+            val minRowH = 40f * density
+            val controlsH = if (box.isBoxSelected()) 44f * density else 0f
+            return padV + headerH + table.rows * minRowH + controlsH
+        }
+        return MIN_HEIGHT
     }
 
     private fun applyBoxBounds(box: NoteBoxView) {

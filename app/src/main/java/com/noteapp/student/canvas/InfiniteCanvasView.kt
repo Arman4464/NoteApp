@@ -8,6 +8,7 @@ import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
+import android.widget.EditText
 import android.widget.FrameLayout
 import com.noteapp.student.settings.GridStyle
 import com.noteapp.student.settings.ThemeColors
@@ -130,10 +131,15 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
     // Move command tracking
     private val moveStartPositions = mutableMapOf<String, Pair<Float, Float>>()
 
+    // Preallocated buffers for GPU batch grid rendering
+    private val gridPointsBuffer = FloatArray(8192)
+    private val gridLinesBuffer = FloatArray(2048)
+
     // Dotted Canvas Grid Paint
     private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#94A3B8")
-        style = Paint.Style.FILL
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
     }
     private val lineGridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#94A3B8")
@@ -353,28 +359,58 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
         if (gridStyle == GridStyle.DOTS) {
             val dotRadius = (1.5f * density).coerceAtLeast(1.0f)
             dotPaint.alpha = if (scale < 0.5f) 70 else 120
+            dotPaint.strokeWidth = dotRadius * 2f
 
+            var pointCount = 0
             var x = startX
             while (x < width) {
                 var y = startY
                 while (y < height) {
-                    canvas.drawCircle(x, y, dotRadius, dotPaint)
+                    if (pointCount + 2 > gridPointsBuffer.size) {
+                        canvas.drawPoints(gridPointsBuffer, 0, pointCount, dotPaint)
+                        pointCount = 0
+                    }
+                    gridPointsBuffer[pointCount++] = x
+                    gridPointsBuffer[pointCount++] = y
                     y += step
                 }
                 x += step
             }
+            if (pointCount > 0) {
+                canvas.drawPoints(gridPointsBuffer, 0, pointCount, dotPaint)
+            }
         } else if (gridStyle == GridStyle.LINES) {
             lineGridPaint.alpha = if (scale < 0.5f) 30 else 55
+            val h = height.toFloat()
+            val w = width.toFloat()
+            var lineCount = 0
 
             var x = startX
             while (x < width) {
-                canvas.drawLine(x, 0f, x, height.toFloat(), lineGridPaint)
+                if (lineCount + 4 > gridLinesBuffer.size) {
+                    canvas.drawLines(gridLinesBuffer, 0, lineCount, lineGridPaint)
+                    lineCount = 0
+                }
+                gridLinesBuffer[lineCount++] = x
+                gridLinesBuffer[lineCount++] = 0f
+                gridLinesBuffer[lineCount++] = x
+                gridLinesBuffer[lineCount++] = h
                 x += step
             }
             var y = startY
             while (y < height) {
-                canvas.drawLine(0f, y, width.toFloat(), y, lineGridPaint)
+                if (lineCount + 4 > gridLinesBuffer.size) {
+                    canvas.drawLines(gridLinesBuffer, 0, lineCount, lineGridPaint)
+                    lineCount = 0
+                }
+                gridLinesBuffer[lineCount++] = 0f
+                gridLinesBuffer[lineCount++] = y
+                gridLinesBuffer[lineCount++] = w
+                gridLinesBuffer[lineCount++] = y
                 y += step
+            }
+            if (lineCount > 0) {
+                canvas.drawLines(gridLinesBuffer, 0, lineCount, lineGridPaint)
             }
         }
     }
@@ -621,14 +657,31 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
         val defaultW = customWidth ?: when (kind) {
             BoxKind.IMAGE -> 240f
             BoxKind.BOARD -> 200f
-            BoxKind.TABLE -> 320f
+            BoxKind.TABLE -> {
+                val table = tableData ?: TableData()
+                val showRowH = (table.rowHeaders != TableIndexStyle.NONE)
+                val headerW = if (showRowH) (44f * density) else 0f
+                val padH = 32f * density
+                val cols = table.cols.coerceAtLeast(1)
+                val minColW = 84f * density
+                max(320f, padH + headerW + cols * minColW)
+            }
             BoxKind.SHAPE -> if (shapeType == ShapeType.CIRCLE) 200f else 220f
             else -> 260f
         }
         val defaultH = customHeight ?: when (kind) {
             BoxKind.IMAGE -> 240f
             BoxKind.BOARD -> 150f
-            BoxKind.TABLE -> 200f
+            BoxKind.TABLE -> {
+                val table = tableData ?: TableData()
+                val showColH = (table.colHeaders != TableIndexStyle.NONE)
+                val headerH = if (showColH) (36f * density) else 0f
+                val padV = 42f * density
+                val rows = table.rows.coerceAtLeast(1)
+                val minRowH = 40f * density
+                val controlsH = 44f * density
+                max(200f, padV + headerH + rows * minRowH + controlsH)
+            }
             BoxKind.SHAPE -> if (shapeType == ShapeType.CIRCLE) 200f else 180f
             else -> 170f
         }
@@ -726,23 +779,38 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
             handleConnectSelection(box)
             return
         }
-        // Bring tapped box to front in contentLayer and end of boxes list
-        boxes.remove(box)
-        boxes.add(box)
-        box.bringToFront()
-        maintainLayerOrder()
-
-        if (!selectedBoxes.contains(box)) {
-            clearSelection()
-            selectedBoxes.add(box)
-            box.setSelectedState(true)
+        val isAlreadyTop = (boxes.lastOrNull() === box)
+        if (!isAlreadyTop) {
+            boxes.remove(box)
+            boxes.add(box)
+            box.bringToFront()
+            maintainLayerOrder()
         }
+
+        if (selectedBoxes.size == 1 && selectedBoxes.contains(box)) {
+            // Already exclusively selected; avoid redundant deselect/select cycle
+            return
+        }
+
+        for (b in selectedBoxes) {
+            b.setSelectedState(false)
+        }
+        selectedBoxes.clear()
+        selectedBoxes.add(box)
+        box.setSelectedState(true)
+
         selectionOverlay.targetBox = box
         selectionOverlay.invalidate()
-        onSelectionChanged?.invoke(selectedBoxes.size)
+        onSelectionChanged?.invoke(1)
     }
 
     // ---------- Group Moving ----------
+
+    private fun hasConnectorsAttachedTo(boxesToCheck: Collection<NoteBoxView>): Boolean {
+        if (connectors.isEmpty() || boxesToCheck.isEmpty()) return false
+        val boxIds = boxesToCheck.map { it.data.id }.toSet()
+        return connectors.any { it.fromId in boxIds || it.toId in boxIds }
+    }
 
     private fun handleBoxMoved(dx: Float, dy: Float) {
         if (moveStartPositions.isEmpty()) {
@@ -755,7 +823,9 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
             selected.applyMoveDelta(dx, dy)
         }
         selectionOverlay.invalidate()
-        invalidateConnectors()
+        if (hasConnectorsAttachedTo(selectedBoxes)) {
+            invalidateConnectors()
+        }
     }
 
     private fun handleBoxMoveFinished() {
@@ -775,7 +845,9 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
                 }
             }
             selectionOverlay.invalidate()
-            invalidateConnectors()
+            if (hasConnectorsAttachedTo(selectedBoxes)) {
+                invalidateConnectors()
+            }
 
             val final = selectedBoxes.associate { it.data.id to Pair(it.data.x, it.data.y) }
             val moved = initial.any { (id, pos) ->
@@ -834,10 +906,12 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
     }
 
     fun dismissKeyboardAndClearFocus() {
-        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
-        val currentFocusView = findFocus() ?: this
-        imm?.hideSoftInputFromWindow(windowToken, 0)
-        currentFocusView.clearFocus()
+        val currentFocusView = findFocus()
+        if (currentFocusView is EditText) {
+            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
+            imm?.hideSoftInputFromWindow(currentFocusView.windowToken, 0)
+            currentFocusView.clearFocus()
+        }
     }
 
     fun clearSelection() {

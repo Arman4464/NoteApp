@@ -1,6 +1,7 @@
 package com.noteapp.student.canvas
 
 import android.graphics.Color
+import android.graphics.Path
 import java.util.UUID
 
 enum class BoxKind { TEXT, IMAGE, CHECKLIST, SHAPE, BOARD, LINK, TABLE }
@@ -89,10 +90,13 @@ data class DrawingStrokeData(
     var width: Float = 6f,
     var isHighlighter: Boolean = false
 ) {
+    @Transient
+    var cachedPath: Path? = null
+
     fun copyDeep(): DrawingStrokeData {
         return copy(
             points = points.toMutableList()
-        )
+        ).also { it.cachedPath = this.cachedPath }
     }
 }
 

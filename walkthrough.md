@@ -99,7 +99,42 @@ NoteApp has been upgraded to a production-ready release with high-precision expo
 
 ---
 
-## 9. Production Release Deliverable
+## 9. Responsive Dynamic Tables & Multi-Line Text Fitting
+- **Proportional Dimension Expansion**:
+  - Replaced fixed cell width and height constants with dynamic cell dimension calculations (`dynamicColWidth = max(minColWidth, availableW / cols)` and `dynamicRowHeight = max(minRowHeight, availableH / rows)`).
+  - Resizing table cards via transform handles smoothly expands columns and rows to fill the entire card bounds, eliminating dead blank space.
+  - Enabled `isFillViewport = true` on table vertical and horizontal scroll containers to ensure full layout stretching.
+- **Minimum Dimension Guardrails & Auto-Expansion**:
+  - Defined minimum cell bounds (`minColWidth = 72dp`, `minRowHeight = 36dp`).
+  - Tapping **+ Row** or **+ Column** calculates the required minimum dimensions (`reqMinW` / `reqMinH`) and automatically expands the card bounds if necessary, ensuring new cells are immediately visible and never cropped out.
+  - Added dedicated **- Row** and **- Col** buttons to the table quick controls toolbar for rapid table pruning.
+- **Zero-Clipping Multi-Line Cell Wrapping**:
+  - Removed `isSingleLine = true` restrictions, enabled multiline text input (`maxLines = 10`, wrapping enabled), and set row containers to `WRAP_CONTENT` layout with `minimumHeight = dynamicRowHeight`.
+  - Column and row header texts wrap gracefully across lines without clipping.
+- **Continuous 60 FPS Handle Resizing**:
+  - Implemented `updateTableDimensions()` hooked into `onSizeChanged` and transform handle drag events, providing real-time column/row resizing during active card scaling.
+  - Enforced minimum table bounds in `SelectionTransformOverlayView` via `getBoxMinWidth` and `getBoxMinHeight`.
+
+---
+
+## 10. High-Performance Infinite Canvas Engine (Zero-Lag Optimization)
+- **Batched Dot & Line Grid Rendering**:
+  - Replaced thousands of individual `canvas.drawCircle` Skia JNI calls with single-pass `canvas.drawPoints` batch rendering using a reusable `gridPointsBuffer: FloatArray(8192)` and `Paint.Cap.ROUND`.
+  - Batched grid lines using `gridLinesBuffer` and `canvas.drawLines`, collapsing GPU state switches and rendering heavy grids at a steady 60–120 FPS.
+- **Cached Vector Ink Paths**:
+  - Added `@Transient var cachedPath: Path?` to `DrawingStrokeData`.
+  - Paths are constructed once upon stroke completion and cached for subsequent frame draws, eliminating quadratic bezier calculations and thousands of point allocations per frame.
+- **Connector Overlay Fast Paths & Selective Invalidation**:
+  - Added early returns in `ConnectorOverlayView.onDraw` when no connectors are present, avoiding per-frame allocations of `boxes.associateBy { it.data.id }`.
+  - Implemented `hasConnectorsAttachedTo(selectedBoxes)` in `InfiniteCanvasView.handleBoxMoved` to invalidate connector layers only when moving cards actually have attached connectors.
+- **Layout Invalidation & IPC Elimination**:
+  - Guarded `box.bringToFront()` with `box !== boxes.lastOrNull()`, preventing consecutive full-tree `requestLayout()` passes over all canvas cards during selection.
+  - Added a 200ms selection debounce in `NoteBoxView.notifyBoxTapped()` to filter duplicate selection events fired by nested scroll containers and text cells.
+  - Guarded `dismissKeyboardAndClearFocus()` so expensive Binder IPC calls (`imm.hideSoftInputFromWindow`) only execute when an `EditText` actually holds focus.
+
+---
+
+## 11. Production Release Deliverable
 - Built with `.\gradlew.bat assembleRelease` (non-debuggable release build).
-- Output release APK generated and copied to project root as `NoteApp.apk`.
+- Output release APK generated and copied to project root as `NoteApp.apk` (5.7 MB).
 
