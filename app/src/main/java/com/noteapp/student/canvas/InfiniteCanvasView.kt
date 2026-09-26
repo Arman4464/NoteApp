@@ -8,6 +8,7 @@ import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
+import android.view.View
 import android.widget.EditText
 import android.widget.FrameLayout
 import com.noteapp.student.settings.GridStyle
@@ -37,7 +38,7 @@ enum class EraserMode {
 class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameLayout(context, attrs) {
 
     companion object {
-        const val WORLD_SIZE = 24000f
+        const val WORLD_SIZE = 64000f
         const val MIN_SCALE = 0.15f
         const val MAX_SCALE = 4.0f
     }
@@ -148,6 +149,33 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
         strokeWidth = 1f
     }
 
+    // Outer Void & 64k Canvas Boundary Border Paints
+    private val outerVoidPaint = Paint().apply {
+        style = Paint.Style.FILL
+    }
+    private val canvasSurfacePaint = Paint().apply {
+        style = Paint.Style.FILL
+    }
+    private val boundaryStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.SQUARE
+    }
+    private val boundaryShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.SQUARE
+    }
+    private val boundaryBadgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+    }
+    private val boundaryTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        typeface = android.graphics.Typeface.DEFAULT_BOLD
+        textAlign = Paint.Align.CENTER
+    }
+
+    // Direct Geometric Touch Dispatching target
+    private var directTouchTarget: View? = null
+
     var gridStyle: GridStyle = GridStyle.DOTS
         set(value) {
             field = value
@@ -189,6 +217,7 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
                 scale = newScale
                 contentLayer.scaleX = scale
                 contentLayer.scaleY = scale
+                clampTranslation()
                 onScaleChanged?.invoke(scale)
                 onCanvasPanZoomListener?.invoke()
                 invalidate() // Redraw grid with new scale
@@ -197,6 +226,31 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
         }
     ).apply {
         isQuickScaleEnabled = false
+    }
+
+    fun clampTranslation() {
+        if (width <= 0 || height <= 0) return
+        val density = resources.displayMetrics.density
+        val margin = 400f * density
+        val canvasW = WORLD_SIZE * scale
+        val canvasH = WORLD_SIZE * scale
+
+        val minTx = width - margin - canvasW
+        val maxTx = margin
+        val minTy = height - margin - canvasH
+        val maxTy = margin
+
+        if (minTx <= maxTx) {
+            contentLayer.translationX = contentLayer.translationX.coerceIn(minTx, maxTx)
+        } else {
+            contentLayer.translationX = (width - canvasW) / 2f
+        }
+
+        if (minTy <= maxTy) {
+            contentLayer.translationY = contentLayer.translationY.coerceIn(minTy, maxTy)
+        } else {
+            contentLayer.translationY = (height - canvasH) / 2f
+        }
     }
 
     init {
@@ -335,16 +389,24 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
         )
 
         post {
-            contentLayer.translationX = width / 2f - WORLD_SIZE / 2f
-            contentLayer.translationY = height / 2f - WORLD_SIZE / 2f
-            invalidate()
+            if (contentLayer.translationX == 0f && contentLayer.translationY == 0f) {
+                contentLayer.translationX = width / 2f - WORLD_SIZE / 2f
+                contentLayer.translationY = height / 2f - WORLD_SIZE / 2f
+                invalidate()
+            }
         }
     }
 
     fun applyTheme(colors: ThemeColors) {
         themeColors = colors
         boxes.forEach { it.themeColors = colors }
-        setBackgroundColor(colors.canvasBg)
+        background = null
+        outerVoidPaint.color = if (colors.isDark) Color.parseColor("#080B10") else Color.parseColor("#CBD5E1")
+        canvasSurfacePaint.color = colors.canvasBg
+        boundaryStrokePaint.color = colors.accent
+        boundaryShadowPaint.color = if (colors.isDark) Color.argb(140, 0, 0, 0) else Color.argb(60, 0, 0, 0)
+        boundaryBadgePaint.color = if (colors.isDark) Color.argb(230, 15, 23, 42) else Color.argb(230, 255, 255, 255)
+        boundaryTextPaint.color = colors.accent
         dotPaint.color = colors.gridDot
         lineGridPaint.color = colors.gridDot
         selectionOverlay.applyTheme(colors)
@@ -354,73 +416,187 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        if (gridStyle == GridStyle.NONE) return
 
         val density = resources.displayMetrics.density
-        val baseStep = 32f * density
-        val step = baseStep * scale
-        if (step < 12f) return // Avoid rendering too fine a grid when zoomed way out
+        val w = width.toFloat()
+        val h = height.toFloat()
+        if (w <= 0 || h <= 0) return
 
-        val startX = (contentLayer.translationX % step + step) % step
-        val startY = (contentLayer.translationY % step + step) % step
+        // 1. Draw outer void (fill entire viewport)
+        canvas.drawRect(0f, 0f, w, h, outerVoidPaint)
 
-        if (gridStyle == GridStyle.DOTS) {
-            val dotRadius = (1.5f * density).coerceAtLeast(1.0f)
-            dotPaint.alpha = if (scale < 0.5f) 70 else 120
-            dotPaint.strokeWidth = dotRadius * 2f
+        // 2. Active 64k canvas bounds on screen
+        val canvasScreenL = contentLayer.translationX
+        val canvasScreenT = contentLayer.translationY
+        val canvasScreenR = canvasScreenL + WORLD_SIZE * scale
+        val canvasScreenB = canvasScreenT + WORLD_SIZE * scale
 
-            var pointCount = 0
-            var x = startX
-            while (x < width) {
-                var y = startY
-                while (y < height) {
-                    if (pointCount + 2 > gridPointsBuffer.size) {
-                        canvas.drawPoints(gridPointsBuffer, 0, pointCount, dotPaint)
-                        pointCount = 0
+        // 3. Draw active 64k canvas surface (clipped to screen viewport)
+        val visL = canvasScreenL.coerceAtLeast(0f)
+        val visT = canvasScreenT.coerceAtLeast(0f)
+        val visR = canvasScreenR.coerceAtMost(w)
+        val visB = canvasScreenB.coerceAtMost(h)
+
+        if (visR > visL && visB > visT) {
+            canvas.drawRect(visL, visT, visR, visB, canvasSurfacePaint)
+        }
+
+        // 4. Render Grid ONLY inside the active canvas area [visL, visT, visR, visB]
+        if (gridStyle != GridStyle.NONE && visR > visL && visB > visT) {
+            val baseStep = 32f * density
+            val step = baseStep * scale
+            if (step >= 12f) {
+                val worldStep = baseStep
+                val minWorldX = max(0f, (-contentLayer.translationX / scale))
+                val minWorldY = max(0f, (-contentLayer.translationY / scale))
+                val firstGridWorldX = Math.ceil(minWorldX.toDouble() / worldStep.toDouble()).toFloat() * worldStep
+                val firstGridWorldY = Math.ceil(minWorldY.toDouble() / worldStep.toDouble()).toFloat() * worldStep
+
+                val gridStartScreenX = contentLayer.translationX + firstGridWorldX * scale
+                val gridStartScreenY = contentLayer.translationY + firstGridWorldY * scale
+
+                if (gridStyle == GridStyle.DOTS) {
+                    val dotRadius = (1.5f * density).coerceAtLeast(1.0f)
+                    dotPaint.alpha = if (scale < 0.5f) 70 else 120
+                    dotPaint.strokeWidth = dotRadius * 2f
+
+                    var pointCount = 0
+                    var gx = gridStartScreenX
+                    while (gx <= visR + 0.5f) {
+                        var gy = gridStartScreenY
+                        while (gy <= visB + 0.5f) {
+                            if (pointCount + 2 > gridPointsBuffer.size) {
+                                canvas.drawPoints(gridPointsBuffer, 0, pointCount, dotPaint)
+                                pointCount = 0
+                            }
+                            gridPointsBuffer[pointCount++] = gx
+                            gridPointsBuffer[pointCount++] = gy
+                            gy += step
+                        }
+                        gx += step
                     }
-                    gridPointsBuffer[pointCount++] = x
-                    gridPointsBuffer[pointCount++] = y
-                    y += step
-                }
-                x += step
-            }
-            if (pointCount > 0) {
-                canvas.drawPoints(gridPointsBuffer, 0, pointCount, dotPaint)
-            }
-        } else if (gridStyle == GridStyle.LINES) {
-            lineGridPaint.alpha = if (scale < 0.5f) 30 else 55
-            val h = height.toFloat()
-            val w = width.toFloat()
-            var lineCount = 0
+                    if (pointCount > 0) {
+                        canvas.drawPoints(gridPointsBuffer, 0, pointCount, dotPaint)
+                    }
+                } else if (gridStyle == GridStyle.LINES) {
+                    lineGridPaint.alpha = if (scale < 0.5f) 30 else 55
+                    var lineCount = 0
 
-            var x = startX
-            while (x < width) {
-                if (lineCount + 4 > gridLinesBuffer.size) {
-                    canvas.drawLines(gridLinesBuffer, 0, lineCount, lineGridPaint)
-                    lineCount = 0
+                    var gx = gridStartScreenX
+                    while (gx <= visR + 0.5f) {
+                        if (lineCount + 4 > gridLinesBuffer.size) {
+                            canvas.drawLines(gridLinesBuffer, 0, lineCount, lineGridPaint)
+                            lineCount = 0
+                        }
+                        gridLinesBuffer[lineCount++] = gx
+                        gridLinesBuffer[lineCount++] = visT
+                        gridLinesBuffer[lineCount++] = gx
+                        gridLinesBuffer[lineCount++] = visB
+                        gx += step
+                    }
+                    var gy = gridStartScreenY
+                    while (gy <= visB + 0.5f) {
+                        if (lineCount + 4 > gridLinesBuffer.size) {
+                            canvas.drawLines(gridLinesBuffer, 0, lineCount, lineGridPaint)
+                            lineCount = 0
+                        }
+                        gridLinesBuffer[lineCount++] = visL
+                        gridLinesBuffer[lineCount++] = gy
+                        gridLinesBuffer[lineCount++] = visR
+                        gridLinesBuffer[lineCount++] = gy
+                        gy += step
+                    }
+                    if (lineCount > 0) {
+                        canvas.drawLines(gridLinesBuffer, 0, lineCount, lineGridPaint)
+                    }
                 }
-                gridLinesBuffer[lineCount++] = x
-                gridLinesBuffer[lineCount++] = 0f
-                gridLinesBuffer[lineCount++] = x
-                gridLinesBuffer[lineCount++] = h
-                x += step
-            }
-            var y = startY
-            while (y < height) {
-                if (lineCount + 4 > gridLinesBuffer.size) {
-                    canvas.drawLines(gridLinesBuffer, 0, lineCount, lineGridPaint)
-                    lineCount = 0
-                }
-                gridLinesBuffer[lineCount++] = 0f
-                gridLinesBuffer[lineCount++] = y
-                gridLinesBuffer[lineCount++] = w
-                gridLinesBuffer[lineCount++] = y
-                y += step
-            }
-            if (lineCount > 0) {
-                canvas.drawLines(gridLinesBuffer, 0, lineCount, lineGridPaint)
             }
         }
+
+        // 5. Draw prominent 64k Boundary Border & Badges
+        val strokeW = 3.5f * density
+        boundaryStrokePaint.strokeWidth = strokeW
+        boundaryShadowPaint.strokeWidth = strokeW + 2f * density
+
+        // Left border
+        if (canvasScreenL in -100f..(w + 100f)) {
+            val topY = canvasScreenT.coerceAtLeast(0f)
+            val botY = canvasScreenB.coerceAtMost(h)
+            if (botY > topY) {
+                canvas.drawLine(canvasScreenL, topY, canvasScreenL, botY, boundaryShadowPaint)
+                canvas.drawLine(canvasScreenL, topY, canvasScreenL, botY, boundaryStrokePaint)
+            }
+        }
+        // Right border
+        if (canvasScreenR in -100f..(w + 100f)) {
+            val topY = canvasScreenT.coerceAtLeast(0f)
+            val botY = canvasScreenB.coerceAtMost(h)
+            if (botY > topY) {
+                canvas.drawLine(canvasScreenR, topY, canvasScreenR, botY, boundaryShadowPaint)
+                canvas.drawLine(canvasScreenR, topY, canvasScreenR, botY, boundaryStrokePaint)
+            }
+        }
+        // Top border
+        if (canvasScreenT in -100f..(h + 100f)) {
+            val leftX = canvasScreenL.coerceAtLeast(0f)
+            val rightX = canvasScreenR.coerceAtMost(w)
+            if (rightX > leftX) {
+                canvas.drawLine(leftX, canvasScreenT, rightX, canvasScreenT, boundaryShadowPaint)
+                canvas.drawLine(leftX, canvasScreenT, rightX, canvasScreenT, boundaryStrokePaint)
+            }
+        }
+        // Bottom border
+        if (canvasScreenB in -100f..(h + 100f)) {
+            val leftX = canvasScreenL.coerceAtLeast(0f)
+            val rightX = canvasScreenR.coerceAtMost(w)
+            if (rightX > leftX) {
+                canvas.drawLine(leftX, canvasScreenB, rightX, canvasScreenB, boundaryShadowPaint)
+                canvas.drawLine(leftX, canvasScreenB, rightX, canvasScreenB, boundaryStrokePaint)
+            }
+        }
+
+        // Corner brackets (L-shape at the 4 corners of the 64k canvas)
+        val cornerLen = 32f * density
+        // Top-Left (canvasScreenL, canvasScreenT)
+        if (canvasScreenL in -50f..(w + 50f) && canvasScreenT in -50f..(h + 50f)) {
+            canvas.drawLine(canvasScreenL, canvasScreenT, canvasScreenL + cornerLen, canvasScreenT, boundaryStrokePaint)
+            canvas.drawLine(canvasScreenL, canvasScreenT, canvasScreenL, canvasScreenT + cornerLen, boundaryStrokePaint)
+        }
+        // Top-Right (canvasScreenR, canvasScreenT)
+        if (canvasScreenR in -50f..(w + 50f) && canvasScreenT in -50f..(h + 50f)) {
+            canvas.drawLine(canvasScreenR, canvasScreenT, canvasScreenR - cornerLen, canvasScreenT, boundaryStrokePaint)
+            canvas.drawLine(canvasScreenR, canvasScreenT, canvasScreenR, canvasScreenT + cornerLen, boundaryStrokePaint)
+        }
+        // Bottom-Left (canvasScreenL, canvasScreenB)
+        if (canvasScreenL in -50f..(w + 50f) && canvasScreenB in -50f..(h + 50f)) {
+            canvas.drawLine(canvasScreenL, canvasScreenB, canvasScreenL + cornerLen, canvasScreenB, boundaryStrokePaint)
+            canvas.drawLine(canvasScreenL, canvasScreenB, canvasScreenL, canvasScreenB - cornerLen, boundaryStrokePaint)
+        }
+        // Bottom-Right (canvasScreenR, canvasScreenB)
+        if (canvasScreenR in -50f..(w + 50f) && canvasScreenB in -50f..(h + 50f)) {
+            canvas.drawLine(canvasScreenR, canvasScreenB, canvasScreenR - cornerLen, canvasScreenB, boundaryStrokePaint)
+            canvas.drawLine(canvasScreenR, canvasScreenB, canvasScreenR, canvasScreenB - cornerLen, boundaryStrokePaint)
+        }
+
+        // Draw "Canvas Boundary • 64,000 × 64,000 px" badge when edge is visible
+        if (canvasScreenT in 40f..(h - 40f)) {
+            val badgeCenterX = ((canvasScreenL + canvasScreenR) / 2f).coerceIn(160f * density, w - 160f * density)
+            drawBoundaryBadge(canvas, badgeCenterX, canvasScreenT, "Canvas Boundary • 64,000 × 64,000 px", density)
+        } else if (canvasScreenB in 40f..(h - 40f)) {
+            val badgeCenterX = ((canvasScreenL + canvasScreenR) / 2f).coerceIn(160f * density, w - 160f * density)
+            drawBoundaryBadge(canvas, badgeCenterX, canvasScreenB, "Canvas Boundary • 64,000 × 64,000 px", density)
+        }
+    }
+
+    private fun drawBoundaryBadge(canvas: Canvas, cx: Float, cy: Float, text: String, density: Float) {
+        boundaryTextPaint.textSize = 10f * density
+        val textW = boundaryTextPaint.measureText(text)
+        val badgeW = textW + 24f * density
+        val badgeH = 22f * density
+        val badgeRect = RectF(cx - badgeW / 2f, cy - badgeH / 2f, cx + badgeW / 2f, cy + badgeH / 2f)
+        canvas.drawRoundRect(badgeRect, 11f * density, 11f * density, boundaryBadgePaint)
+        canvas.drawRoundRect(badgeRect, 11f * density, 11f * density, boundaryStrokePaint)
+        canvas.drawText(text, cx, cy + 3.5f * density, boundaryTextPaint)
     }
 
     private fun updateToolState() {
@@ -442,13 +618,61 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-        // When drawing, erasing, or drawing free arrows, route directly to onTouchEvent so that child cards and edit texts
-        // cannot intercept or block gestures!
-        if (activeTool == CanvasTool.DRAW || activeTool == CanvasTool.ERASER ||
-            (activeTool == CanvasTool.CONNECT && isFreeArrowMode)) {
+        // Multi-touch gestures (pinch to zoom) or tool modes route directly to onTouchEvent
+        if (ev.pointerCount >= 2 || activeTool == CanvasTool.PAN || activeTool == CanvasTool.DRAW ||
+            activeTool == CanvasTool.ERASER || (activeTool == CanvasTool.CONNECT && isFreeArrowMode)) {
+            if (directTouchTarget != null) {
+                val cancelEvent = MotionEvent.obtain(ev).apply { action = MotionEvent.ACTION_CANCEL }
+                directTouchTarget?.dispatchTouchEvent(cancelEvent)
+                cancelEvent.recycle()
+                directTouchTarget = null
+            }
             return onTouchEvent(ev)
         }
-        return super.dispatchTouchEvent(ev)
+
+        val contentX = (ev.x - contentLayer.translationX) / scale
+        val contentY = (ev.y - contentLayer.translationY) / scale
+
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
+            // Priority 1: Selection handles or heading if targetBox is selected and unlocked
+            if (selectionOverlay.targetBox != null &&
+                !selectionOverlay.targetBox!!.data.isLocked &&
+                selectionOverlay.hitTest(contentX, contentY) != SelectionTransformOverlayView.HANDLE_NONE) {
+                directTouchTarget = selectionOverlay
+            } else {
+                // Priority 2: Direct geometric hit-test across all cards (top to bottom)
+                val hitBox = boxes.reversed().firstOrNull { it.containsPoint(contentX, contentY) }
+                directTouchTarget = hitBox
+            }
+        }
+
+        if (directTouchTarget === selectionOverlay) {
+            val transformed = MotionEvent.obtain(ev).apply {
+                setLocation(contentX, contentY)
+            }
+            val handled = selectionOverlay.dispatchTouchEvent(transformed)
+            transformed.recycle()
+            if (ev.actionMasked == MotionEvent.ACTION_UP || ev.actionMasked == MotionEvent.ACTION_CANCEL) {
+                directTouchTarget = null
+            }
+            return handled
+        }
+
+        if (directTouchTarget is NoteBoxView) {
+            val box = directTouchTarget as NoteBoxView
+            val transformed = MotionEvent.obtain(ev).apply {
+                setLocation(contentX - box.data.x, contentY - box.data.y)
+            }
+            val handled = box.dispatchTouchEvent(transformed)
+            transformed.recycle()
+            if (ev.actionMasked == MotionEvent.ACTION_UP || ev.actionMasked == MotionEvent.ACTION_CANCEL) {
+                directTouchTarget = null
+            }
+            return handled
+        }
+
+        // Priority 3: Empty canvas background -> pan canvas or tap to clear selection
+        return onTouchEvent(ev)
     }
 
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
@@ -630,6 +854,7 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
                     }
                     contentLayer.translationX += dx
                     contentLayer.translationY += dy
+                    clampTranslation()
                     lastPanX = event.x
                     lastPanY = event.y
                     invalidate()
@@ -716,9 +941,12 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
             themeColors.cardDefaultBg
         }
 
+        val clampedX = (viewportCenterContentX - defaultW / 2f).coerceIn(32f, WORLD_SIZE - defaultW - 32f)
+        val clampedY = (viewportCenterContentY - defaultH / 2f).coerceIn(32f, WORLD_SIZE - defaultH - 32f)
+
         val data = NoteBoxData(
-            x = viewportCenterContentX - defaultW / 2f,
-            y = viewportCenterContentY - defaultH / 2f,
+            x = clampedX,
+            y = clampedY,
             width = defaultW,
             height = defaultH,
             kind = kind,
@@ -1384,6 +1612,7 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
         scale = newScale
         contentLayer.scaleX = scale
         contentLayer.scaleY = scale
+        clampTranslation()
         onScaleChanged?.invoke(scale)
         invalidate()
     }

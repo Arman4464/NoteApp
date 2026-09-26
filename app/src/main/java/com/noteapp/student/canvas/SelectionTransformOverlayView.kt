@@ -202,7 +202,7 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
         canvas.drawText(headingText, headingRect.left + 4f, headingRect.bottom - 8f, headingPaint)
     }
 
-    private fun hitTest(x: Float, y: Float): Int {
+    fun hitTest(x: Float, y: Float): Int {
         val box = targetBox ?: return HANDLE_NONE
         if (!box.isBoxSelected()) return HANDLE_NONE
         if (box.data.isLocked) return HANDLE_NONE
@@ -481,6 +481,10 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
     }
 
     private fun applyBoxBounds(box: NoteBoxView) {
+        box.data.x = box.data.x.coerceIn(0f, InfiniteCanvasView.WORLD_SIZE - box.data.width)
+        box.data.y = box.data.y.coerceIn(0f, InfiniteCanvasView.WORLD_SIZE - box.data.height)
+        box.data.width = box.data.width.coerceIn(MIN_WIDTH, InfiniteCanvasView.WORLD_SIZE - box.data.x)
+        box.data.height = box.data.height.coerceIn(MIN_HEIGHT, InfiniteCanvasView.WORLD_SIZE - box.data.y)
         box.x = box.data.x
         box.y = box.data.y
         val lp = box.layoutParams

@@ -8,11 +8,13 @@ Built entirely with standard Android SDK components, hardware-accelerated vector
 
 ## Key Features
 
-### 1. Infinite Canvas & High-Performance Engine
-- **24,000 × 24,000 px Workspace**: Seamless, borderless creative surface.
-- **Rock-Solid Gesture Engine**: Strictly requires 2 fingers for pinch-to-zoom (`isQuickScaleEnabled = false`), eliminating accidental 1-finger zooms. Buttery-smooth 1-finger panning on canvas background.
-- **Batched GPU Grid Rendering**: Dot and line grids batched into single-pass GPU draw calls (`drawPoints`/`drawLines`), rendering thousands of grid points at a steady 60–120 FPS.
-- **Zero-Lag Inking & Card Manipulation**: Cached vector ink paths, selective connector invalidation, and debounced touch dispatch ensure lag-free performance even on dense boards with hundreds of elements.
+### 1. 64,000 × 64,000 px Canvas & High-Performance Engine
+- **Expansive 64k × 64k Workspace**: Massive 64,000 × 64,000 px creative surface offering virtually limitless room to expand notes, diagrams, and boards.
+- **Clear Visual Boundary & Outer Deep Void**: Prominent 3.5dp boundary border, corner L-brackets, outer void background, and boundary badges showing clearly where the workspace ends.
+- **Direct Geometric Touch Dispatching**: Guarantees elements placed anywhere across the 64k area (including edges and expanded regions) are immediately selectable, draggable, editable, and deletable without Android ViewGroup touch-clipping issues.
+- **Progressive Viewport Culling**: Freehand inking strokes, dynamic connectors, and GPU dot/line grids are culled against the visible screen viewport clip (`canvas.clipBounds`), ensuring steady 60–120 FPS performance with zero memory spikes.
+- **Rock-Solid Gesture Engine**: Strictly requires 2 fingers for pinch-to-zoom (`isQuickScaleEnabled = false`), eliminating accidental 1-finger zooms. Buttery-smooth 1-finger panning on canvas background with soft overscroll boundary clamping.
+- **Batched GPU Grid Rendering**: Dot and line grids batched into single-pass GPU draw calls (`drawPoints`/`drawLines`), rendering thousands of grid points at a steady 60–120 FPS strictly within the 64k canvas surface.
 - **Zoom HUD & Fit-to-Screen**: Real-time zoom level HUD with single-tap Zoom-to-Fit for instant framing of all board content.
 - **Customizable Canvas Backgrounds**: Switch between Modern Dot Grid, Standard Graph Grid, Isometric Grid, or Blank Canvas.
 

@@ -275,8 +275,8 @@ class BoardManager(private val context: Context) {
 
     fun createDefaultPlaygroundBoard(): BoardData {
         val meta = BoardMeta(id = "playground", name = "Tutorial & Playground")
-        val cx = 12000f
-        val cy = 12000f
+        val cx = 32000f
+        val cy = 32000f
 
         val box1 = NoteBoxData(
             id = "tutorial_welcome",
@@ -395,8 +395,8 @@ class BoardManager(private val context: Context) {
             name = "Project Alpha (Sub-Board)",
             parentId = parentId
         )
-        val cx = 12000f
-        val cy = 12000f
+        val cx = 32000f
+        val cy = 32000f
 
         val note = NoteBoxData(
             id = "sub_note_1",

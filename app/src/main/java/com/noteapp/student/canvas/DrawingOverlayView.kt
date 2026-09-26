@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
@@ -80,8 +81,38 @@ class DrawingOverlayView(context: Context, attrs: AttributeSet? = null) : View(c
         return path
     }
 
+    private fun getOrCreateStrokeBounds(stroke: DrawingStrokeData): RectF {
+        stroke.cachedBounds?.let { return it }
+        var minX = Float.MAX_VALUE
+        var minY = Float.MAX_VALUE
+        var maxX = -Float.MAX_VALUE
+        var maxY = -Float.MAX_VALUE
+        for (p in stroke.points) {
+            if (p.first < minX) minX = p.first
+            if (p.first > maxX) maxX = p.first
+            if (p.second < minY) minY = p.second
+            if (p.second > maxY) maxY = p.second
+        }
+        val r = RectF(minX, minY, maxX, maxY)
+        stroke.cachedBounds = r
+        return r
+    }
+
     private fun drawStroke(canvas: Canvas, stroke: DrawingStrokeData) {
         if (stroke.points.isEmpty()) return
+
+        // Viewport culling: only rasterize strokes visible in current canvas clip
+        if (stroke.points.size > 1) {
+            val clip = canvas.clipBounds
+            val bounds = getOrCreateStrokeBounds(stroke)
+            val pad = stroke.width * 3f
+            if (bounds.right + pad < clip.left ||
+                bounds.left - pad > clip.right ||
+                bounds.bottom + pad < clip.top ||
+                bounds.top - pad > clip.bottom) {
+                return
+            }
+        }
 
         val paint = if (stroke.isHighlighter) {
             highlighterPaint.apply {

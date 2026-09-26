@@ -160,6 +160,17 @@ class ConnectorOverlayView(context: Context, attrs: AttributeSet? = null) : View
                 isCurved = true
             }
 
+            // Viewport culling: skip rendering connectors outside the current canvas viewport
+            val clip = canvas.clipBounds
+            val pad = strokeW * 4f + 30f
+            val minX = Math.min(x1, x2) - pad
+            val maxX = Math.max(x1, x2) + pad
+            val minY = Math.min(y1, y2) - pad
+            val maxY = Math.max(y1, y2) + pad
+            if (maxX < clip.left || minX > clip.right || maxY < clip.top || minY > clip.bottom) {
+                return
+            }
+
             val dx = x2 - x1
             val dy = y2 - y1
             val dist = hypot(dx.toDouble(), dy.toDouble()).toFloat()

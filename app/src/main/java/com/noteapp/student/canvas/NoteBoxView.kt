@@ -1349,8 +1349,10 @@ class NoteBoxView(
     }
 
     fun applyMoveDelta(dx: Float, dy: Float) {
-        data.x += dx
-        data.y += dy
+        val newX = (data.x + dx).coerceIn(0f, InfiniteCanvasView.WORLD_SIZE - data.width)
+        val newY = (data.y + dy).coerceIn(0f, InfiniteCanvasView.WORLD_SIZE - data.height)
+        data.x = newX
+        data.y = newY
         this.x = data.x
         this.y = data.y
     }

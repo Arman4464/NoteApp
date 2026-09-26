@@ -94,11 +94,16 @@ data class DrawingStrokeData(
 ) {
     @Transient
     var cachedPath: Path? = null
+    @Transient
+    var cachedBounds: android.graphics.RectF? = null
 
     fun copyDeep(): DrawingStrokeData {
         return copy(
             points = points.toMutableList()
-        ).also { it.cachedPath = this.cachedPath }
+        ).also { 
+            it.cachedPath = this.cachedPath 
+            it.cachedBounds = this.cachedBounds
+        }
     }
 }
 
