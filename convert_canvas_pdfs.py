@@ -34,6 +34,7 @@ def get_table_definitions() -> Dict[str, List[Dict[str, Any]]]:
             {
                 "header_pattern": ["features", "book-keeping", "accounting"],
                 "num_rows": 5,
+                "data_blocks_count": 7,
                 "customColLabels": ["Features", "Book-keeping", "Accounting"],
                 "cells": [
                     ['Nature', 
@@ -58,6 +59,7 @@ def get_table_definitions() -> Dict[str, List[Dict[str, Any]]]:
             {
                 "header_pattern": ["features", "advantages", "disadvantages"],
                 "num_rows": 9,
+                "data_blocks_count": 9,
                 "customColLabels": ["Features", "Advantages", "Disadvantages"],
                 "cells": [
                     ['Right to private property.', 'Decentralisation of economic power.', 'Income inequality.'],
@@ -74,6 +76,7 @@ def get_table_definitions() -> Dict[str, List[Dict[str, Any]]]:
             {
                 "header_pattern": ["features", "advantages", "disadvantages"],
                 "num_rows": 5,
+                "data_blocks_count": 5,
                 "customColLabels": ["Features", "Advantages", "Disadvantages"],
                 "cells": [
                     ['Collective/state ownership.', 'No wasteful competition.', 'No automatic price mechanism.'],
@@ -86,6 +89,7 @@ def get_table_definitions() -> Dict[str, List[Dict[str, Any]]]:
             {
                 "header_pattern": ["features", "advantages", "disadvantages"],
                 "num_rows": 6,
+                "data_blocks_count": 6,
                 "customColLabels": ["Features", "Advantages", "Disadvantages"],
                 "cells": [
                     ['Co-existence of public and private sectors.', 'Benefits of private property and profit motive.', 'Public sector inefficiency.'],
@@ -99,6 +103,7 @@ def get_table_definitions() -> Dict[str, List[Dict[str, Any]]]:
             {
                 "header_pattern": ["features", "microeconomics", "macroeconomics"],
                 "num_rows": 5,
+                "data_blocks_count": 9,
                 "customColLabels": ["Features", "Microeconomics", "Macroeconomics"],
                 "cells": [
                     ['Unit of study', 
@@ -121,6 +126,7 @@ def get_table_definitions() -> Dict[str, List[Dict[str, Any]]]:
             {
                 "header_pattern": ["features", "positive economics", "normative economics"],
                 "num_rows": 9,
+                "data_blocks_count": 10,
                 "customColLabels": ["Features", "Positive economics", "Normative economics"],
                 "cells": [
                     ['Meaning', 'A stream of economics based on data and facts.', 'A stream of economics based on values, opinions and judgements.'],
@@ -242,20 +248,12 @@ def convert_canvas_pdf(pdf_path: str, output_path: str, document_title: str = No
                     else:
                         break
 
-                # Collect data row blocks following letters
-                k = j
-                while k < len(uncovered_elements) and k < j + num_rows * 2:
-                    k_text = uncovered_elements[k]["text"].strip()
-                    if any(h in k_text.lower() for h in [
-                        "microeconomics and", "methods of logical", "perspective of analysis", 
-                        "accounting process:", "objectives of accounting:"
-                    ]):
-                        break
-                    if any(all(p in k_text.lower() for p in other_t["header_pattern"]) for other_t in expected_tables if other_t != t_spec):
-                        break
+                # Collect exact data row blocks following letters
+                num_blocks = t_spec.get("data_blocks_count", num_rows)
+                for k in range(j, min(len(uncovered_elements), j + num_blocks)):
                     table_rect |= uncovered_elements[k]["rect"]
                     used_element_indices.add(k)
-                    k += 1
+                k = j + num_blocks
 
                 extracted_tables.append({
                     "rect": table_rect,
