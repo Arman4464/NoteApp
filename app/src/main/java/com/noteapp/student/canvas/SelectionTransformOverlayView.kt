@@ -438,6 +438,9 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
                     if (activeHandle == HANDLE_HEADING) {
                         onBoxMoveFinished?.invoke()
                     } else if (activeHandle in 0..7) {
+                        if (box.data.kind == BoxKind.TABLE) {
+                            box.updateTableDimensions()
+                        }
                         onBoxResized?.invoke()
                         onBoxResizeFinished?.invoke(box, initialX, initialY, initialWidth, initialHeight)
                     }
@@ -481,16 +484,21 @@ class SelectionTransformOverlayView(context: Context, attrs: AttributeSet? = nul
     }
 
     private fun applyBoxBounds(box: NoteBoxView) {
+        val minW = getBoxMinWidth(box)
+        val minH = getBoxMinHeight(box)
         box.data.x = box.data.x.coerceIn(0f, InfiniteCanvasView.WORLD_SIZE - box.data.width)
         box.data.y = box.data.y.coerceIn(0f, InfiniteCanvasView.WORLD_SIZE - box.data.height)
-        box.data.width = box.data.width.coerceIn(MIN_WIDTH, InfiniteCanvasView.WORLD_SIZE - box.data.x)
-        box.data.height = box.data.height.coerceIn(MIN_HEIGHT, InfiniteCanvasView.WORLD_SIZE - box.data.y)
+        box.data.width = box.data.width.coerceIn(minW, InfiniteCanvasView.WORLD_SIZE - box.data.x)
+        box.data.height = box.data.height.coerceIn(minH, InfiniteCanvasView.WORLD_SIZE - box.data.y)
         box.x = box.data.x
         box.y = box.data.y
         val lp = box.layoutParams
         lp.width = box.data.width.toInt()
         lp.height = box.data.height.toInt()
         box.layoutParams = lp
+        if (box.data.kind == BoxKind.TABLE) {
+            box.updateTableDimensions()
+        }
         onBoxResized?.invoke()
     }
 }

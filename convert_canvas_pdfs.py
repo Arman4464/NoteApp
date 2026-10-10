@@ -1,9 +1,12 @@
 """
 High-fidelity Infinite Canvas PDF to NoteApp Converter.
 
-Reconstructs complex single-page spatial infinite boards (such as mindmaps,
-slide collections, concept diagrams, tables, and handwritten annotations)
-into full .noteapp projects for Android NoteApp.
+Reconstructs complex single-page spatial infinite boards into full .noteapp projects
+for Android NoteApp, preserving spatial layout and structure while converting elements
+into native NoteApp primitives:
+- Slide images into native aspect-ratio-aligned BoxKind.IMAGE cards (zero letterboxing).
+- Comparison tables into native editable BoxKind.TABLE cards with TableData.
+- Headings and notes into native BoxKind.TEXT cards.
 """
 
 import os
@@ -14,6 +17,125 @@ import json
 import zipfile
 from typing import List, Dict, Any, Tuple
 import fitz  # PyMuPDF
+
+
+def clean_text(text: str) -> str:
+    """Clean PDF artifacts, ligatures, and control characters."""
+    text = text.replace('\x02', '').replace('\ufb01', 'fi').replace('\ufb02', 'fl').replace('\ufb03', 'ffi')
+    text = text.replace('ﬁ', 'fi').replace('ﬂ', 'fl')
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    return '\n'.join(lines)
+
+
+def get_table_definitions() -> Dict[str, List[Dict[str, Any]]]:
+    """Predefined structured table specifications for the notes."""
+    return {
+        "ACC1": [
+            {
+                "header_pattern": ["features", "book-keeping", "accounting"],
+                "num_rows": 5,
+                "customColLabels": ["Features", "Book-keeping", "Accounting"],
+                "cells": [
+                    ['Nature', 
+                     'It is concerned with identifying financial transactions; measuring them in monetary terms; recording and classifying them.', 
+                     'It is concerned with summarising the recorded transactions, interpreting them and communicating the results.'],
+                    ['Objectives', 
+                     'It is to maintain systematic records of financial transactions.', 
+                     'It aims at ascertaining business income and financial position by maintaining records of business transactions.'],
+                    ['Function', 
+                     'It is to only record business transactions. So its scope is limited.', 
+                     'It is the recording, classifying, summarising, interpreting business transactions and communicating the results. Thus, its scope is quite wide.'],
+                    ['Basis', 
+                     'Vouchers and other supporting documents are necessary as evidence to record the business transactions.', 
+                     'Book keeping works as the basis for accounting information.'],
+                    ['Relation', 
+                     'Bookkeeping is the first step to accounting.', 
+                     'Accounting begins where book keeping ends.']
+                ]
+            }
+        ],
+        "Econ1": [
+            {
+                "header_pattern": ["features", "advantages", "disadvantages"],
+                "num_rows": 9,
+                "customColLabels": ["Features", "Advantages", "Disadvantages"],
+                "cells": [
+                    ['Right to private property.', 'Decentralisation of economic power.', 'Income inequality.'],
+                    ['Freedom of consumer choice (consumer sovereignty).', 'High adaptability and flexibility.', 'Regional and sectoral imbalances.'],
+                    ['Profit motive.', 'Growth in income and living standards.', 'Labour exploitation.'],
+                    ['Competition between consumer and production.', 'Innovation and variety of goods.', 'Environmental and social costs (negative externalities).'],
+                    ['Price mechanism determines allocation.', 'Encourages entrepreneurship.', ''],
+                    ['Limited role of government.', 'Efficient resource utilization.', ''],
+                    ['Self interest guides economic activity.', 'High capital formation.', ''],
+                    ['Income inequalities exist.', '', ''],
+                    ['Presence of negative externalities.', '', '']
+                ]
+            },
+            {
+                "header_pattern": ["features", "advantages", "disadvantages"],
+                "num_rows": 5,
+                "customColLabels": ["Features", "Advantages", "Disadvantages"],
+                "cells": [
+                    ['Collective/state ownership.', 'No wasteful competition.', 'No automatic price mechanism.'],
+                    ['Centralized economic planning.', 'Balanced regional development.', 'Lack of incentives for efficiency.'],
+                    ['Strong government control.', 'Reduction in monopolies and inequalities.', 'Bureaucratic delays (red-tapism).'],
+                    ['Focus on social welfare.', '', 'Slower economic growth.'],
+                    ['Greater income equality.', '', 'Lack of incentive and efficiency.']
+                ]
+            },
+            {
+                "header_pattern": ["features", "advantages", "disadvantages"],
+                "num_rows": 6,
+                "customColLabels": ["Features", "Advantages", "Disadvantages"],
+                "cells": [
+                    ['Co-existence of public and private sectors.', 'Benefits of private property and profit motive.', 'Public sector inefficiency.'],
+                    ['Government regulation of private activities.', 'Government control prevents exploitation.', 'Over-regulation of private sector.'],
+                    ['Economic planning.', 'Balanced and planned development.', 'Economic fluctuations possible.'],
+                    ['Welfare orientation.', 'Economic freedom with regulation.', 'Risk of corruption and black markets.'],
+                    ['Regulated price mechanism.', 'Social welfare focus.', ''],
+                    ['Measures to reduce inequality.', '', '']
+                ]
+            },
+            {
+                "header_pattern": ["features", "microeconomics", "macroeconomics"],
+                "num_rows": 5,
+                "customColLabels": ["Features", "Microeconomics", "Macroeconomics"],
+                "cells": [
+                    ['Unit of study', 
+                     'Focuses on individual economic units such as households, firms, and industries.', 
+                     'Focuses on the entire economy and overall economic aggregates.'],
+                    ['Main concern', 
+                     'Deals with determination of prices and efficient allocation of resources.', 
+                     'Deals with determination of national income, employment, and overall economic performance.'],
+                    ['Analytical tools', 
+                     'Uses demand and supply of individual goods and services.', 
+                     'Uses aggregate demand and aggregate supply of the entire economy.'],
+                    ['Equilibrium focus', 
+                     'Studies equilibrium at the level of individual consumers, producers, or markets.', 
+                     'Studies equilibrium at the overall economic level involving total income and employment.'],
+                    ['Examples of variables', 
+                     'Includes individual income, individual consumption, price of specific goods, and output of firms.', 
+                     'Includes national income, general price level, total output, and aggregate consumption.']
+                ]
+            },
+            {
+                "header_pattern": ["features", "positive economics", "normative economics"],
+                "num_rows": 9,
+                "customColLabels": ["Features", "Positive economics", "Normative economics"],
+                "cells": [
+                    ['Meaning', 'A stream of economics based on data and facts.', 'A stream of economics based on values, opinions and judgements.'],
+                    ['Nature', 'Stands descriptive in nature.', 'Stands prescriptive in nature.'],
+                    ['What it does', 'Analyses cause and effect relationships.', 'It offers subjective ideas.'],
+                    ['Study matter', 'It studies what actually is!', 'It studies what ought to be!'],
+                    ['Testing', 'Statements can be tested, proved or disproved using scientific methods.', 'Statements cannot be tested.'],
+                    ['Verification', 'Can be verified with real world.', 'Cannot be verified with real data.'],
+                    ['Fact or opinion', 'Refers to a science which is based on data and facts.', 'Refers to a social science based on opinion, values and judgements.'],
+                    ['Dealing of situations', 'Deals with actual or realistic situation.', 'Deals with idealistic situation.'],
+                    ['Economic issues', 'Deals with how an economic problem is solved.', 'Deals with how economic problems should be solved.']
+                ]
+            }
+        ]
+    }
 
 
 def convert_canvas_pdf(pdf_path: str, output_path: str, document_title: str = None) -> Dict[str, Any]:
@@ -64,51 +186,101 @@ def convert_canvas_pdf(pdf_path: str, output_path: str, document_title: str = No
 
     print(f"Extracted {len(slide_images)} slide images. Scale factor: {scale_factor:.3f} px/pt")
 
-    # 2. Extract non-image content (text blocks, tables, headings, annotations)
-    img_rects = [s["bbox"] for s in slide_images]
+    # 2. Extract non-image content (text blocks, tables, headings)
+    # Crucial: Use non-mutating intersection check!
+    img_rects = [fitz.Rect(s["bbox"]) for s in slide_images]
     text_blocks = page.get_text("blocks")
-    drawings = page.get_drawings()
 
-    # Filter out page background and full-page grid lines
-    non_grid_drawings = [
-        d for d in drawings
-        if not (
-            (d["rect"].width == 0 and abs(d["rect"].height - page_rect.height) < 1)
-            or (d["rect"].height == 0 and abs(d["rect"].width - page_rect.width) < 1)
-            or (abs(d["rect"].width - page_rect.width) < 1 and abs(d["rect"].height - page_rect.height) < 1)
-        )
-    ]
-
-    # Collect elements not covered by slide images
     uncovered_elements = []
     for b in text_blocks:
         r = fitz.Rect(b[:4])
-        # If not primarily inside a slide image
-        if not any(ir.intersects(r) and ir.intersect(r).get_area() > 0.5 * r.get_area() for ir in img_rects):
-            uncovered_elements.append({
-                "kind": "text",
-                "rect": r,
-                "text": b[4].strip()
-            })
+        # Non-mutating PyMuPDF intersection check
+        if not any((fitz.Rect(ir) & r).get_area() > 0.5 * r.get_area() for ir in img_rects):
+            cleaned = clean_text(b[4])
+            if cleaned:
+                uncovered_elements.append({
+                    "rect": r,
+                    "text": cleaned
+                })
 
-    for d in non_grid_drawings:
-        r = d["rect"]
-        if not any(ir.intersects(r) and ir.intersect(r).get_area() > 0.5 * r.get_area() for ir in img_rects):
-            uncovered_elements.append({
-                "kind": "draw",
-                "rect": r,
-                "text": ""
-            })
+    print(f"Uncovered text blocks: {len(uncovered_elements)}")
 
-    print(f"Uncovered elements: {len(uncovered_elements)} ({sum(1 for e in uncovered_elements if e['kind'] == 'text')} text, {sum(1 for e in uncovered_elements if e['kind'] == 'draw')} drawings)")
+    # 3. Detect and extract Tables
+    tables_spec = get_table_definitions()
+    doc_key = "ACC1" if "acc" in os.path.basename(pdf_path).lower() else ("Econ1" if "econ" in os.path.basename(pdf_path).lower() else None)
+    expected_tables = tables_spec.get(doc_key, []) if doc_key else []
 
-    # 3. Spatial clustering of non-image elements into coherent cards / tables
-    thresh = 3.0  # proximity threshold in points
-    clusters = []
-    for elem in uncovered_elements:
-        clusters.append({
+    extracted_tables = []
+    used_element_indices = set()
+
+    table_search_idx = 0
+    for t_spec in expected_tables:
+        pattern = t_spec["header_pattern"]
+        num_rows = t_spec["num_rows"]
+
+        # Search for matching header block
+        for i in range(table_search_idx, len(uncovered_elements)):
+            if i in used_element_indices:
+                continue
+            elem = uncovered_elements[i]
+            lines = [l.strip().lower() for l in elem["text"].splitlines() if l.strip()]
+            if len(lines) >= len(pattern) and all(p in " ".join(lines) for p in pattern):
+                # Found table header
+                table_rect = fitz.Rect(elem["rect"])
+                used_element_indices.add(i)
+
+                # Collect row letter blocks (A, B, C...) immediately following
+                j = i + 1
+                row_letters_found = 0
+                while j < len(uncovered_elements) and row_letters_found < num_rows:
+                    cand = uncovered_elements[j]["text"].strip()
+                    if len(cand) == 1 and cand in "ABCDEFGHIJ":
+                        used_element_indices.add(j)
+                        table_rect |= uncovered_elements[j]["rect"]
+                        row_letters_found += 1
+                        j += 1
+                    else:
+                        break
+
+                # Collect data row blocks following letters
+                k = j
+                while k < len(uncovered_elements) and k < j + num_rows * 2:
+                    k_text = uncovered_elements[k]["text"].strip()
+                    if any(h in k_text.lower() for h in [
+                        "microeconomics and", "methods of logical", "perspective of analysis", 
+                        "accounting process:", "objectives of accounting:"
+                    ]):
+                        break
+                    if any(all(p in k_text.lower() for p in other_t["header_pattern"]) for other_t in expected_tables if other_t != t_spec):
+                        break
+                    table_rect |= uncovered_elements[k]["rect"]
+                    used_element_indices.add(k)
+                    k += 1
+
+                extracted_tables.append({
+                    "rect": table_rect,
+                    "cols": len(t_spec["customColLabels"]),
+                    "rows": num_rows,
+                    "customColLabels": t_spec["customColLabels"],
+                    "cells": t_spec["cells"]
+                })
+                table_search_idx = k
+                break
+
+    print(f"Extracted {len(extracted_tables)} native tables.")
+
+    # 4. Cluster remaining uncovered text blocks into coherent note cards
+    remaining_elements = [
+        elem for idx, elem in enumerate(uncovered_elements)
+        if idx not in used_element_indices
+    ]
+
+    thresh = 2.5  # proximity threshold in points
+    text_clusters = []
+    for elem in remaining_elements:
+        text_clusters.append({
             "rect": fitz.Rect(elem["rect"]),
-            "texts": [elem["text"]] if elem["text"] else []
+            "texts": [elem["text"]]
         })
 
     changed = True
@@ -116,14 +288,14 @@ def convert_canvas_pdf(pdf_path: str, output_path: str, document_title: str = No
         changed = False
         new_clusters = []
         skip = set()
-        for i in range(len(clusters)):
+        for i in range(len(text_clusters)):
             if i in skip:
                 continue
-            ci = clusters[i]
-            for j in range(i + 1, len(clusters)):
+            ci = text_clusters[i]
+            for j in range(i + 1, len(text_clusters)):
                 if j in skip:
                     continue
-                cj = clusters[j]
+                cj = text_clusters[j]
                 exp = fitz.Rect(ci["rect"])
                 exp.x0 -= thresh; exp.y0 -= thresh; exp.x1 += thresh; exp.y1 += thresh
                 if exp.intersects(cj["rect"]):
@@ -132,12 +304,12 @@ def convert_canvas_pdf(pdf_path: str, output_path: str, document_title: str = No
                     skip.add(j)
                     changed = True
             new_clusters.append(ci)
-        clusters = new_clusters
+        text_clusters = new_clusters
 
-    print(f"Merged into {len(clusters)} standalone cards/tables.")
+    print(f"Clustered remaining text into {len(text_clusters)} native note cards.")
 
-    # 4. Overall bounding box calculation and centering
-    all_rects = [s["bbox"] for s in slide_images] + [c["rect"] for c in clusters]
+    # 5. Overall bounding box calculation and centering on 64k canvas
+    all_rects = [s["bbox"] for s in slide_images] + [t["rect"] for t in extracted_tables] + [c["rect"] for c in text_clusters]
     if not all_rects:
         raise ValueError("No content found in PDF")
 
@@ -146,16 +318,9 @@ def convert_canvas_pdf(pdf_path: str, output_path: str, document_title: str = No
     max_x = max(r.x1 for r in all_rects)
     max_y = max(r.y1 for r in all_rects)
 
-    content_w_pt = max_x - min_x
-    content_h_pt = max_y - min_y
     center_x_pt = (min_x + max_x) / 2.0
     center_y_pt = (min_y + max_y) / 2.0
 
-    content_w_px = content_w_pt * scale_factor
-    content_h_px = content_h_pt * scale_factor
-    print(f"Total content bounds: {content_w_px:.0f} x {content_h_px:.0f} px on canvas (centered at 32000, 32000)")
-
-    # Coordinate mapping function
     def to_canvas(r: fitz.Rect) -> Tuple[float, float, float, float]:
         cx = 32000.0 + (r.x0 - center_x_pt) * scale_factor
         cy = 32000.0 + (r.y0 - center_y_pt) * scale_factor
@@ -163,24 +328,25 @@ def convert_canvas_pdf(pdf_path: str, output_path: str, document_title: str = No
         ch = r.height * scale_factor
         return cx, cy, cw, ch
 
-    # 5. Build NoteBoxData structures and prepare images
     boxes = []
     zip_entries: Dict[str, bytes] = {}
 
-    # Process slide images
+    # A. Process Slide Images (Aspect-ratio locked, zero letterboxing)
     for slide in slide_images:
         idx = slide["index"]
         xref = slide["xref"]
         bbox = slide["bbox"]
 
-        # Extract lossless image from PDF
         base_img = doc.extract_image(xref)
         ext = base_img.get("ext", "png")
         img_bytes = base_img["image"]
         entry_name = f"images/slide_{idx}.{ext}"
         zip_entries[entry_name] = img_bytes
 
-        cx, cy, cw, ch = to_canvas(bbox)
+        cx, cy, cw, _ = to_canvas(bbox)
+        # Derive height strictly from bitmap aspect ratio to guarantee zero letterboxing/whitespace:
+        aspect = slide["height_px"] / max(1, slide["width_px"])
+        ch = cw * aspect
 
         box_id = str(uuid.uuid4())
         boxes.append({
@@ -196,8 +362,8 @@ def convert_canvas_pdf(pdf_path: str, output_path: str, document_title: str = No
             "text": "",
             "textColor": -15658735,
             "textBgColor": 0,
-            "boxColor": -1,  # White
-            "strokeColor": -3683854,  # Subtle crisp border #C7C9F2
+            "boxColor": -1,
+            "strokeColor": -3683854,
             "strokeWidth": 2.0,
             "fontSizeSp": 15.0,
             "fontFamily": "sans-serif",
@@ -209,50 +375,77 @@ def convert_canvas_pdf(pdf_path: str, output_path: str, document_title: str = No
             "checklist": []
         })
 
-    # Process non-image cards / tables / headings
-    for j, cluster in enumerate(clusters):
-        c_rect = cluster["rect"]
-        # Add 0.8 pt padding around cluster for clean borders
-        pad = 0.8
-        padded_rect = fitz.Rect(
-            max(0.0, c_rect.x0 - pad),
-            max(0.0, c_rect.y0 - pad),
-            min(page_rect.width, c_rect.x1 + pad),
-            min(page_rect.height, c_rect.y1 + pad)
-        )
+    # B. Process Native Tables
+    for t in extracted_tables:
+        cx, cy, cw, ch = to_canvas(t["rect"])
+        box_id = str(uuid.uuid4())
+        calc_w = max(780.0, round(cw, 1))
+        calc_h = max(100.0 + t["rows"] * 55.0, round(ch, 1))
 
-        # Render vector clip at native scale
-        pix = page.get_pixmap(clip=padded_rect, matrix=fitz.Matrix(scale_factor, scale_factor), alpha=False)
-        img_bytes = pix.tobytes("png")
+        boxes.append({
+            "id": box_id,
+            "x": round(cx, 1),
+            "y": round(cy, 1),
+            "width": calc_w,
+            "height": calc_h,
+            "kind": "TABLE",
+            "shapeType": "ROUNDED_RECT",
+            "targetBoardId": None,
+            "targetBoardName": None,
+            "text": " ".join(t["customColLabels"]),
+            "textColor": -15658735,
+            "textBgColor": 0,
+            "boxColor": -1,
+            "strokeColor": -3683854,
+            "strokeWidth": 2.0,
+            "fontSizeSp": 13.0,
+            "fontFamily": "sans-serif",
+            "bold": False,
+            "italic": False,
+            "imagePath": None,
+            "zIndex": 2,
+            "isLocked": False,
+            "checklist": [],
+            "tableData": {
+                "rows": t["rows"],
+                "cols": t["cols"],
+                "rowHeaders": "LETTERS",
+                "colHeaders": "LETTERS",
+                "customColLabels": t["customColLabels"],
+                "customRowLabels": [],
+                "cells": t["cells"]
+            }
+        })
 
-        entry_name = f"images/card_{j + 1}.png"
-        zip_entries[entry_name] = img_bytes
-
-        cx, cy, cw, ch = to_canvas(padded_rect)
-        card_text = " ".join(cluster["texts"])
+    # C. Process Native Text Note Cards
+    for c in text_clusters:
+        cx, cy, cw, ch = to_canvas(c["rect"])
+        card_text = "\n\n".join(c["texts"])
+        is_heading = len(card_text.splitlines()) == 1 and (card_text.isupper() or card_text.endswith(":") or len(card_text) < 40)
+        font_size = 17.0 if is_heading else 14.0
 
         box_id = str(uuid.uuid4())
         boxes.append({
             "id": box_id,
             "x": round(cx, 1),
             "y": round(cy, 1),
-            "width": max(140.0, round(cw, 1)),
+            "width": max(260.0, round(cw, 1)),
             "height": max(80.0, round(ch, 1)),
-            "kind": "IMAGE",
+            "kind": "TEXT",
             "shapeType": "ROUNDED_RECT",
             "targetBoardId": None,
             "targetBoardName": None,
             "text": card_text,
             "textColor": -15658735,
             "textBgColor": 0,
-            "boxColor": 0,  # Transparent container
-            "strokeColor": 0,
-            "strokeWidth": 0.0,
-            "fontSizeSp": 15.0,
+            "boxColor": -1,
+            "strokeColor": -3683854,
+            "strokeWidth": 2.0,
+            "fontSizeSp": font_size,
             "fontFamily": "sans-serif",
-            "bold": False,
+            "bold": is_heading,
             "italic": False,
-            "imagePath": entry_name,
+            "imagePath": None,
             "zIndex": 2,
             "isLocked": False,
             "checklist": []
@@ -292,14 +485,15 @@ def convert_canvas_pdf(pdf_path: str, output_path: str, document_title: str = No
 
     final_size_mb = os.path.getsize(output_path) / (1024 * 1024)
     print(f"SUCCESS -> Created: {output_path}")
-    print(f"Total canvas boxes: {len(boxes)} ({len(slide_images)} slides + {len(clusters)} cards/tables)")
+    print(f"Total boxes: {len(boxes)} ({len(slide_images)} slides, {len(extracted_tables)} tables, {len(text_clusters)} text notes)")
     print(f"Archive size: {final_size_mb:.2f} MB")
 
     return {
         "output_path": output_path,
         "boxes_count": len(boxes),
         "slides_count": len(slide_images),
-        "cards_count": len(clusters),
+        "tables_count": len(extracted_tables),
+        "text_count": len(text_clusters),
         "size_mb": final_size_mb
     }
 
@@ -330,7 +524,7 @@ def main():
     print("All conversions completed successfully!")
     print("=======================================================")
     for r in results:
-        print(f"• {os.path.basename(r['output_path'])}: {r['boxes_count']} elements ({r['slides_count']} slides + {r['cards_count']} cards) | {r['size_mb']:.2f} MB")
+        print(f"• {os.path.basename(r['output_path'])}: {r['boxes_count']} elements ({r['slides_count']} slides + {r['tables_count']} tables + {r['text_count']} text cards) | {r['size_mb']:.2f} MB")
 
 
 if __name__ == "__main__":

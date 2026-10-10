@@ -699,8 +699,13 @@ class NoteBoxView(
         val availableW = (data.width - padH - headerColWidth).toInt()
         val availableH = (data.height - padV - headerRowHeight - controlsH).toInt()
 
-        val dynamicColWidth = if (table.cols > 0) max(minColWidth, availableW / table.cols) else minColWidth
-        val dynamicRowHeight = if (table.rows > 0) max(minRowHeight, availableH / table.rows) else minRowHeight
+        val totalColAvailable = if (table.cols > 0) max(table.cols * minColWidth, availableW) else minColWidth
+        val baseColW = if (table.cols > 0) totalColAvailable / table.cols else minColWidth
+        val remColW = if (table.cols > 0) totalColAvailable % table.cols else 0
+
+        val totalRowAvailable = if (table.rows > 0) max(table.rows * minRowHeight, availableH) else minRowHeight
+        val baseRowH = if (table.rows > 0) totalRowAvailable / table.rows else minRowHeight
+        val remRowH = if (table.rows > 0) totalRowAvailable % table.rows else 0
 
         // 1. Column Header Row (if enabled)
         if (showColHeaders) {
@@ -724,9 +729,10 @@ class NoteBoxView(
                     table.customColLabels[c]
                 } else ""
                 val defaultColLabel = getColHeaderLabel(c, table.colHeaders)
+                val targetColW = baseColW + if (c < remColW) 1 else 0
 
                 val th = EditText(context).apply {
-                    layoutParams = LinearLayout.LayoutParams(dynamicColWidth, headerRowHeight)
+                    layoutParams = LinearLayout.LayoutParams(targetColW, headerRowHeight)
                     setText(colLabel)
                     hint = defaultColLabel
                     textSize = 12f
@@ -761,10 +767,11 @@ class NoteBoxView(
 
         // 2. Data Rows
         for (r in 0 until table.rows) {
+            val targetRowH = baseRowH + if (r < remRowH) 1 else 0
             val rowLayout = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                minimumHeight = dynamicRowHeight
+                gravity = Gravity.FILL_VERTICAL
+                minimumHeight = targetRowH
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
@@ -777,8 +784,10 @@ class NoteBoxView(
                 val defaultRowLabel = getRowHeaderLabel(r, table.rowHeaders)
 
                 val rh = EditText(context).apply {
-                    layoutParams = LinearLayout.LayoutParams(headerColWidth, LinearLayout.LayoutParams.MATCH_PARENT)
-                    minimumHeight = dynamicRowHeight
+                    layoutParams = LinearLayout.LayoutParams(headerColWidth, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                        gravity = Gravity.FILL_VERTICAL
+                    }
+                    minimumHeight = targetRowH
                     setText(rowLabel)
                     hint = defaultRowLabel
                     textSize = 12f
@@ -789,7 +798,7 @@ class NoteBoxView(
                     setHintTextColor(if (isDark) Color.parseColor("#64748B") else Color.parseColor("#94A3B8"))
                     gravity = Gravity.CENTER
                     isSingleLine = false
-                    maxLines = 3
+                    maxLines = Int.MAX_VALUE
                     background = GradientDrawable().apply {
                         shape = GradientDrawable.RECTANGLE
                         setColor(headerBg)
@@ -810,9 +819,12 @@ class NoteBoxView(
             }
 
             for (c in 0 until table.cols) {
+                val targetColW = baseColW + if (c < remColW) 1 else 0
                 val cellEdit = EditText(context).apply {
-                    layoutParams = LinearLayout.LayoutParams(dynamicColWidth, LinearLayout.LayoutParams.MATCH_PARENT)
-                    minimumHeight = dynamicRowHeight
+                    layoutParams = LinearLayout.LayoutParams(targetColW, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                        gravity = Gravity.FILL_VERTICAL
+                    }
+                    minimumHeight = targetRowH
                     setText(table.cells[r][c])
                     textSize = data.fontSizeSp.coerceIn(11f, 18f)
                     includeFontPadding = false
@@ -822,7 +834,7 @@ class NoteBoxView(
                     gravity = Gravity.CENTER_VERTICAL or Gravity.START
                     setPadding((8 * density).toInt(), (6 * density).toInt(), (8 * density).toInt(), (6 * density).toInt())
                     isSingleLine = false
-                    maxLines = 10
+                    maxLines = Int.MAX_VALUE
                     inputType = android.text.InputType.TYPE_CLASS_TEXT or
                                 android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or
                                 android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
@@ -1017,20 +1029,29 @@ class NoteBoxView(
         val availableW = (data.width - padH - headerColWidth).toInt()
         val availableH = (data.height - padV - headerRowHeight - controlsH).toInt()
 
-        val dynamicColWidth = if (table.cols > 0) max(minColWidth, availableW / table.cols) else minColWidth
-        val dynamicRowHeight = if (table.rows > 0) max(minRowHeight, availableH / table.rows) else minRowHeight
+        val totalColAvailable = if (table.cols > 0) max(table.cols * minColWidth, availableW) else minColWidth
+        val baseColW = if (table.cols > 0) totalColAvailable / table.cols else minColWidth
+        val remColW = if (table.cols > 0) totalColAvailable % table.cols else 0
+
+        val totalRowAvailable = if (table.rows > 0) max(table.rows * minRowHeight, availableH) else minRowHeight
+        val baseRowH = if (table.rows > 0) totalRowAvailable / table.rows else minRowHeight
+        val remRowH = if (table.rows > 0) totalRowAvailable % table.rows else 0
 
         var childIdx = 0
         if (showColHeaders && childIdx < tableContainer.childCount) {
             val colHeaderRow = tableContainer.getChildAt(childIdx) as? LinearLayout
             if (colHeaderRow != null) {
                 val startCol = if (showRowHeaders) 1 else 0
-                for (c in startCol until colHeaderRow.childCount) {
-                    val th = colHeaderRow.getChildAt(c)
-                    val lp = th.layoutParams
-                    if (lp.width != dynamicColWidth) {
-                        lp.width = dynamicColWidth
-                        th.layoutParams = lp
+                for (c in 0 until table.cols) {
+                    val viewIdx = startCol + c
+                    if (viewIdx < colHeaderRow.childCount) {
+                        val th = colHeaderRow.getChildAt(viewIdx)
+                        val targetW = baseColW + if (c < remColW) 1 else 0
+                        val lp = th.layoutParams
+                        if (lp.width != targetW) {
+                            lp.width = targetW
+                            th.layoutParams = lp
+                        }
                     }
                 }
             }
@@ -1041,30 +1062,35 @@ class NoteBoxView(
             if (childIdx >= tableContainer.childCount) break
             val rowLayout = tableContainer.getChildAt(childIdx) as? LinearLayout
             if (rowLayout != null) {
-                if (rowLayout.minimumHeight != dynamicRowHeight) {
-                    rowLayout.minimumHeight = dynamicRowHeight
+                val targetRowH = baseRowH + if (r < remRowH) 1 else 0
+                if (rowLayout.minimumHeight != targetRowH) {
+                    rowLayout.minimumHeight = targetRowH
                 }
                 val startCol = if (showRowHeaders) 1 else 0
                 if (showRowHeaders && rowLayout.childCount > 0) {
                     val rh = rowLayout.getChildAt(0)
-                    if (rh.minimumHeight != dynamicRowHeight) {
-                        rh.minimumHeight = dynamicRowHeight
+                    if (rh.minimumHeight != targetRowH) {
+                        rh.minimumHeight = targetRowH
                     }
                 }
-                for (c in startCol until rowLayout.childCount) {
-                    val cell = rowLayout.getChildAt(c)
-                    val lp = cell.layoutParams
-                    var changed = false
-                    if (lp.width != dynamicColWidth) {
-                        lp.width = dynamicColWidth
-                        changed = true
-                    }
-                    if (cell.minimumHeight != dynamicRowHeight) {
-                        cell.minimumHeight = dynamicRowHeight
-                        changed = true
-                    }
-                    if (changed) {
-                        cell.layoutParams = lp
+                for (c in 0 until table.cols) {
+                    val viewIdx = startCol + c
+                    if (viewIdx < rowLayout.childCount) {
+                        val cell = rowLayout.getChildAt(viewIdx)
+                        val targetW = baseColW + if (c < remColW) 1 else 0
+                        val lp = cell.layoutParams
+                        var changed = false
+                        if (lp.width != targetW) {
+                            lp.width = targetW
+                            changed = true
+                        }
+                        if (cell.minimumHeight != targetRowH) {
+                            cell.minimumHeight = targetRowH
+                            changed = true
+                        }
+                        if (changed) {
+                            cell.layoutParams = lp
+                        }
                     }
                 }
             }

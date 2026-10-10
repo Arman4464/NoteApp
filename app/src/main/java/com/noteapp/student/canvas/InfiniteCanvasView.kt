@@ -358,6 +358,9 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
                         lp.width = finalW.toInt()
                         lp.height = finalH.toInt()
                         box.layoutParams = lp
+                        if (box.data.kind == BoxKind.TABLE) {
+                            box.updateTableDimensions()
+                        }
                         selectionOverlay.invalidate()
                         invalidateConnectors()
                     }
@@ -372,6 +375,9 @@ class InfiniteCanvasView(context: Context, attrs: AttributeSet? = null) : FrameL
                         lp.width = oldW.toInt()
                         lp.height = oldH.toInt()
                         box.layoutParams = lp
+                        if (box.data.kind == BoxKind.TABLE) {
+                            box.updateTableDimensions()
+                        }
                         selectionOverlay.invalidate()
                         invalidateConnectors()
                     }
